@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Level 0: Hunt (Prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+</head>
+<body>
+<canvas id="view"></canvas>
+<canvas id="ov"></canvas>
+<div id="vignette"></div>
+<div id="flash"></div>
+
+<div id="hud" class="hidden">
+  <div id="role"></div>
+  <div id="alive"></div>
+  <div id="timer">4:00</div>
+  <div id="feed"></div>
+  <div id="msg"></div>
+  <div id="cross"></div>
+  <div id="cool"></div>
+  <div id="prompt"></div>
+  <div id="sanWrap" class="hidden"><div id="san"></div></div>
+  <div id="stamWrap"><div id="stam"></div></div>
+  <div id="seedTag"></div>
+</div>
+<div id="fps" class="hidden"></div>
+<div id="abilityPick" class="hidden">
+  <div class="apTitle">CHOOSE YOUR GIFT</div>
+  <div class="apRow">
+    <div class="card on" data-ab="dash"><div class="k">1</div><div class="n">DASH</div><div class="d">A 3 second burst of terrifying speed.<br>12.5s cooldown.</div></div>
+    <div class="card" data-ab="mimic"><div class="k">2</div><div class="n">MIMIC</div><div class="d">Disguise yourself as a survivor. Walk among them, no sprint (3.7 m/s). Unveil to attack.<br>13s before you can disguise again.</div></div>
+  </div>
+  <div class="apNote">use it with [Shift] · locked in when the feast begins</div>
+</div>
+<div id="anomaly" class="hidden"><div id="anTitle"></div><div id="anDesc"></div></div>
+
+<div id="menu" class="panel">
+  <div class="box">
+    <h1 style="font-size:54px;white-space:nowrap">LEVEL 0 // HUNT</h1>
+    <div class="sub">4 survivors. 1 entity. empty slots are filled with bots until multiplayer.</div>
+    <div class="row"><label>Username</label>
+      <input type="text" id="nameIn" placeholder="Wanderer" maxlength="16">
+    </div>
+    <div class="row"><label>Mode</label>
+      <button class="opt" data-g="net" data-v="online" id="modeOnline">Online</button>
+      <button class="opt" data-g="net" data-v="offline" id="modeOffline">Offline (bots)</button>
+    </div>
+    <div class="row"><label>Map size</label>
+      <button class="opt" data-g="size" data-v="12">Small · 2:00</button>
+      <button class="opt on" data-g="size" data-v="16">Medium · 3:00</button>
+      <button class="opt" data-g="size" data-v="20">Large · 4:00</button>
+    </div>
+    <div class="row"><label>Anomalies</label>
+      <button class="opt on" data-g="anomaly" data-v="random">Random</button>
+      <button class="opt" data-g="anomaly" data-v="off">Off</button>
+    </div>
+    <div class="row"><label>Room / seed</label>
+      <input type="text" id="seedIn" placeholder="blank = random" maxlength="9" inputmode="numeric" pattern="[0-9]*">
+    </div>
+    <div id="menuNote" class="menuNote"></div>
+    <button class="go" id="startBtn">ENTER ROOM</button>
+    <div class="btnrow">
+      <button class="go alt" id="viewBtn">MODELS</button>
+      <button class="go alt" data-open="settingsPanel">SETTINGS</button>
+      <button class="go alt" data-open="controlsPanel">CONTROLS</button>
+    </div>
+  </div>
+</div>
+
+<div id="viewerUI" class="hidden" style="position:fixed;left:0;right:0;bottom:22px;display:flex;flex-direction:column;align-items:center;gap:10px;pointer-events:none">
+  <div style="font-size:12px;opacity:.6">drag to rotate · scroll to zoom</div>
+  <div style="display:flex;gap:8px;pointer-events:auto">
+    <button class="opt on" data-model="entity">Entity</button><button class="opt" data-model="suit">Survivor</button>
+  </div>
+  <div style="display:flex;gap:8px;pointer-events:auto">
+    <button class="opt on" data-pose="idle">Idle</button><button class="opt" data-pose="walk">Stalking</button><button class="opt" data-pose="chase">Chasing</button><button class="opt hidden" data-pose="crouch">Crouching</button>
+    <button class="opt" id="viewBack">Back</button>
+  </div>
+</div>
+<div id="lobby" class="panel hidden"><div class="box">
+  <div class="lbHead"><div><div class="sub" style="margin:0">ROOM</div><div id="lbRoom" class="lbRoom"></div></div><div id="lbInfo" class="lbInfo"></div></div>
+  <div id="lbList" class="lbList"></div>
+  <div class="lbEnt"><div id="lbEntLine"></div>
+    <div id="lbEntCtl"><label style="opacity:.7;margin-right:8px">Host: choose the Entity</label><select id="entityPick" class="pick"></select></div>
+  </div>
+  <div class="row" style="margin-top:12px;justify-content:center"><label style="width:auto;margin-right:10px">AI players</label>
+    <button class="opt" id="botsOn">On</button><button class="opt" id="botsOff">Off</button>
+  </div>
+  <div id="lbStatus" class="lbStatus"></div>
+  <button class="go" id="readyBtn">READY</button>
+  <button class="go alt" id="lobbyLeave">LEAVE ROOM</button>
+</div></div>
+<div id="pause" class="panel hidden"><div class="box" style="text-align:center">
+  <h1 style="font-size:52px">MENU</h1><div class="sub">the round is still going. you are not safe here.</div>
+  <button class="go" id="resumeBtn">BACK TO GAME</button>
+  <button class="go alt" data-open="settingsPanel">SETTINGS</button>
+  <button class="go alt" data-open="controlsPanel">CONTROLS</button>
+  <button class="go alt danger" id="leaveBtn">LEAVE GAME</button>
+</div></div>
+
+<div id="settingsPanel" class="panel hidden"><div class="box">
+  <h1 style="font-size:48px">SETTINGS</h1><div class="sub">saved on this device</div>
+  <div class="srow"><label>Mouse sensitivity</label><input type="range" id="setSens" min="0.2" max="3" step="0.05"><span id="vSens"></span></div>
+  <div class="srow"><label>Invert mouse Y</label><button class="opt" id="setInvert"></button></div>
+  <div class="srow"><label>Field of view</label><input type="range" id="setFov" min="60" max="100" step="1"><span id="vFov"></span></div>
+  <div class="srow"><label>Master volume</label><input type="range" id="setVol" min="0" max="1" step="0.01"><span id="vVol"></span></div>
+  <div class="srow"><label>Camera bob</label><input type="range" id="setBob" min="0" max="1" step="0.05"><span id="vBob"></span></div>
+  <div class="srow"><label>Graphics</label><button class="opt" data-gfx="high">High</button><button class="opt" data-gfx="low">Low (faster)</button></div>
+  <div class="srow"><label>Show FPS</label><button class="opt" id="setFps"></button></div>
+  <div class="note hidden" id="gfxNote">Graphics change applies from the next round.</div>
+  <button class="go alt back">BACK</button>
+</div></div>
+
+<div id="controlsPanel" class="panel hidden"><div class="box">
+  <h1 style="font-size:48px">CONTROLS</h1>
+  <div class="ctl">
+    <div class="ch">Everyone</div>
+    <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><div>move</div>
+    <div><kbd>Mouse</kbd></div><div>look around</div>
+    <div><kbd>E</kbd></div><div>interact (enter / leave vents)</div>
+    <div><kbd>C</kbd></div><div>crouch (survivors: silent · Entity: slower, much quieter steps)</div>
+    <div><kbd>Esc</kbd></div><div>menu (the round keeps going)</div>
+    <div class="ch">Survivor</div>
+    <div><kbd>Space</kbd> + <kbd>A</kbd> / <kbd>D</kbd></div><div>lean left / right to peek around corners</div>
+    <div><kbd>1</kbd> (hold)</div><div>look behind you while you run</div>
+    <div><kbd>Shift</kbd></div><div>sprint (10s bar, 6.5s lockout if you empty it)</div>
+    <div><kbd>←</kbd> <kbd>→</kbd> / <kbd>Click</kbd></div><div>switch who you spectate after you die</div>
+    <div class="ch">Entity</div>
+    <div><kbd>1</kbd> / <kbd>Left click</kbd></div><div>bite: short range, 1s cooldown</div>
+    <div><kbd>2</kbd> / <kbd>Right click</kbd></div><div>arm swipe: longer reach, 3s cooldown</div>
+    <div><kbd>1</kbd> / <kbd>2</kbd> before the feast</div><div>choose your ability: Dash or Mimic</div>
+    <div><kbd>Shift</kbd></div><div>Dash: 3s speed burst, 12.5s cooldown · Mimic: disguise as a survivor / unveil, 13s cooldown</div>
+    <div><kbd>E</kbd> at a vent</div><div>rip it open: throws out anyone hiding (20s cooldown)</div>
+  </div>
+  <div class="note">Vents hide you from the Entity, but stay in longer than ~20s and the smilers come.<br>Blackouts kill the lights in one area for a few seconds: inside, nobody can see far, the Entity included. In the last 30 seconds every light turns red.</div>
+  <button class="go alt back">BACK</button>
+</div></div>
+
+<div id="end" class="panel hidden">
+  <div class="box">
+    <div id="endTitle"></div>
+    <div id="endBody"></div>
+    <button class="go" id="againBtn">PLAY AGAIN</button>
+    <button class="go alt" id="newBtn">NEW ROOM</button>
+    <button class="go alt" id="menuBtn">MENU</button>
+  </div>
+</div>
+<script type="module" src="./src/game.js"></script>
+</body>
+</html>

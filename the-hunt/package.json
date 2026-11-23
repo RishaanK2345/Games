@@ -1,0 +1,28 @@
+{
+  "name": "level0-hunt",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node server/index.js",
+    "start": "node server/index.js",
+    "balance": "node test/balance.mjs",
+    "test:server": "node test/protocol.mjs"
+  },
+  "dependencies": {
+    "@colyseus/core": "^0.18.29",
+    "@colyseus/schema": "^5.0.50",
+    "@colyseus/sdk": "^0.18.10",
+    "@colyseus/ws-transport": "^0.18.5",
+    "three": "0.128.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
