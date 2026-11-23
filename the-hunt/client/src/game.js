@@ -1445,7 +1445,7 @@ function draw(dt){
   if(G.mimicMesh){ const fa=G.mimicAgent; G.mimicMesh.visible=showFake&&host!==m; G.mimicMesh.position.set(m.pos.x+(revealing?(Math.random()-0.5)*0.15:0),0,m.pos.z); G.mimicMesh.rotation.y=m.yaw;
     fa.vel=m.vel||0; fa.crouching=!!m.crouching; fa.lean=m.lean||0; fa.mode=m.crouching?'crouch':fa.vel>0.3?'walk':'idle'; fa.moving=fa.vel>0.3; const b4=Math.floor(fa.stepPhase); fa.stepPhase+=dt*fa.vel/STEP_LEN.walk;
     if(G.mimicMesh.visible) animateSuit(fa,dt,t);
-    if(m.disguised&&Math.floor(fa.stepPhase)!==b4&&fa.vel>0.6&&!m.crouching&&m!==p&&Math.hypot(m.pos.x-camera.position.x,m.pos.z-camera.position.z)<24*lateFar) SFX.step(m.pos.x,m.pos.z,0.22*lateLoud,!los(camera.position.x,camera.position.z,m.pos.x,m.pos.z),false); }
+    if(m.disguised&&Math.floor(fa.stepPhase)!==b4&&fa.vel>0.6&&!m.crouching&&m!==p&&Math.hypot(m.pos.x-camera.position.x,m.pos.z-camera.position.z)<24) SFX.step(m.pos.x,m.pos.z,0.22,!los(camera.position.x,camera.position.z,m.pos.x,m.pos.z),false); }
   if(m.disguised||(revealing&&showFake)) mm.visible=false;
   mm.userData.spine[0].pv.visible=!(m.isPlayer&&host===p); mm.userData.legs[0].th.pv.parent.parent.children[0].visible=!(m.isPlayer&&host===p); mm.userData.haze.forEach(h=>h.visible=!(m.isPlayer&&host===p));
   animateEntity(m,dt,t);
