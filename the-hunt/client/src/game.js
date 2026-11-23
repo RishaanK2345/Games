@@ -830,6 +830,12 @@ function edgeTurn(dt){
   const E=0.08, d=mouseX<E?(E-mouseX)/E:mouseX>1-E?-(mouseX-(1-E))/E:0;
   if(d) G.player.yaw+=d*2.4*PREF.sens*dt;
 }
+/** the survivor's control strip at the bottom of the screen (live: shows exhaustion, vent state, spectating) */
+function survivorControls(p){
+  if(!p.alive) return '[←] [→] switch who you spectate';
+  if(p.inVent) return '[E] climb out   ·   [Hold 1] look behind';
+  return [p.exhausted?'[Shift] sprint '+Math.ceil(p.exhaustT||0)+'s':'[Shift] sprint','[C] crouch','[Space]+[A/D] lean','[Hold 1] look behind','[E] vent'].join('   ·   ');
+}
 function updateLookUI(){
   const inRound=!!(G&&!G.over&&!G.menuOpen);
   canvas.style.cursor=inRound?'none':'';
@@ -906,15 +912,15 @@ function netUpdate(dt){
 function applySnapshot(S){
   const p=G.player; G.timeLeft=S.tl; G.elapsed=S.el;
   for(const r of S.s){ const a=agentById(G,r[0]); if(!a) continue;
-    const [,x,z,yaw,pitch,mode,moving,cr,leanOff,alive,vent,st,ex,san,exT]=r;
+    const [,x,z,yaw,pitch,mode,moving,cr,leanOff,alive,vent,st,ex,san,exT,lean]=r;
     a.stamina=st; a.exhausted=!!ex; a.sanity=san; a.exhaustT=exT;
     const v=vent>=0?G.vents[vent]:null; if(a.inVent!==v){ if(a.inVent&&a.inVent.occupant===a) a.inVent.occupant=null; a.inVent=v; if(v) v.occupant=a; }
     if(a===p) continue;   // your own movement is predicted locally
-    a.net={x,z,yaw}; if(!a.alive||a.inVent){ a.pos.x=x; a.pos.z=z; } a.pitch=pitch; a.mode=mode; a.moving=!!moving; a.crouching=!!cr; a.leanOff=leanOff; }
+    a.net={x,z,yaw}; if(!a.alive||a.inVent){ a.pos.x=x; a.pos.z=z; } a.pitch=pitch; a.mode=mode; a.moving=!!moving; a.crouching=!!cr; a.leanOff=leanOff; a.lean=lean||0; }
   const m=G.monster, M=S.m;
   for(const k of ['revealT','burstT','burstCD','mimicCD','biteCD','swipeCD','ripCD','ripT','cooldown','atkLock']) m[k]=M[k];
   m.frozen=!!M.frozen; m.ability=M.ability; m.seen=M.seen; m.state=M.state; if(M.look!=null) m.look=M.look;
-  if(m!==p){ m.net={x:M.x,z:M.z,yaw:M.yaw}; m.pitch=M.pitch; m.mode=M.mode; m.moving=!!M.moving; m.crouching=!!M.crouching; }
+  if(m!==p){ m.net={x:M.x,z:M.z,yaw:M.yaw}; m.pitch=M.pitch; m.mode=M.mode; m.moving=!!M.moving; m.crouching=!!M.crouching; m.lean=M.lean||0; m.leanOff=M.leanOff||0; }
   G.blackouts=S.b.map(([x,z,r,t,dur])=>({x,z,r,t,dur}));
 }
 
@@ -1044,7 +1050,7 @@ syncSettingsUI(); initModeButtons();
 function updatePlayer(dt){
   const p=G.player; if(!p.alive||p.inVent){ p.moving=false; p.mode='idle'; p.lean=0; p.leanOff=0; p.crouching=false; return; }
   let ix=0, iz=0; if(keys.KeyW||keys.ArrowUp)iz+=1; if(keys.KeyS||keys.ArrowDown)iz-=1; if(keys.KeyD||keys.ArrowRight)ix+=1; if(keys.KeyA||keys.ArrowLeft)ix-=1;
-  const leaning=!p.isMonster&&!!keys.Space; let lt=0; if(leaning){ if(keys.KeyA) lt-=1; if(keys.KeyD) lt+=1; ix=0; }   // survivors: Space + A/D leans instead of strafing
+  const leaning=!!keys.Space; let lt=0; if(leaning){ if(keys.KeyA) lt-=1; if(keys.KeyD) lt+=1; ix=0; }   // Space + A/D leans instead of strafing (survivors and Entity)
   p.crouching=!!keys.KeyC;
   const moving=!!(ix||iz);
   const fx=-Math.sin(p.yaw), fz=-Math.cos(p.yaw), rx=Math.cos(p.yaw), rz=-Math.sin(p.yaw);
@@ -1434,7 +1440,7 @@ function draw(dt){
   const mm=m.mesh; mm.visible=!m.absent; mm.position.set(m.pos.x,0,m.pos.z); mm.rotation.set(0,m.yaw,0);
   const revealing=m.revealT>0, showFake=m.disguised||(revealing&&Math.random()<m.revealT/CONFIG.revealTime);
   if(G.mimicMesh){ const fa=G.mimicAgent; G.mimicMesh.visible=showFake&&host!==m; G.mimicMesh.position.set(m.pos.x+(revealing?(Math.random()-0.5)*0.15:0),0,m.pos.z); G.mimicMesh.rotation.y=m.yaw;
-    fa.vel=m.vel||0; fa.crouching=!!m.crouching; fa.mode=m.crouching?'crouch':fa.vel>0.3?'walk':'idle'; fa.moving=fa.vel>0.3; const b4=Math.floor(fa.stepPhase); fa.stepPhase+=dt*fa.vel/STEP_LEN.walk;
+    fa.vel=m.vel||0; fa.crouching=!!m.crouching; fa.lean=m.lean||0; fa.mode=m.crouching?'crouch':fa.vel>0.3?'walk':'idle'; fa.moving=fa.vel>0.3; const b4=Math.floor(fa.stepPhase); fa.stepPhase+=dt*fa.vel/STEP_LEN.walk;
     if(G.mimicMesh.visible) animateSuit(fa,dt,t);
     if(m.disguised&&Math.floor(fa.stepPhase)!==b4&&fa.vel>0.6&&!m.crouching&&m!==p&&Math.hypot(m.pos.x-camera.position.x,m.pos.z-camera.position.z)<24) SFX.step(m.pos.x,m.pos.z,0.22,!los(camera.position.x,camera.position.z,m.pos.x,m.pos.z),false); }
   if(m.disguised||(revealing&&showFake)) mm.visible=false;
@@ -1448,7 +1454,7 @@ function draw(dt){
   // HUD
   $('timer').textContent=fmt(G.timeLeft); $('timer').style.color=G.timeLeft<30?'#f3c96b':'';
   const aliveN=G.survivors.filter(s=>s.alive).length; $('alive').textContent=G.survivors.length?`${aliveN}/${G.survivors.length} survivors left`:'no survivors (AI off)';
-  if(!p.isMonster){ $('stam').style.width=(p.stamina*100)+'%'; $('stam').classList.toggle('tired',p.exhausted); $('cool').textContent=p.exhausted?'exhausted '+Math.ceil(p.exhaustT)+'s':''; }
+  if(!p.isMonster){ $('stam').style.width=(p.stamina*100)+'%'; $('stam').classList.toggle('tired',p.exhausted); $('cool').textContent=survivorControls(p); }
   if(m.frozen) $('msg').textContent=(p.isMonster?'Feast begins in ':'Hunt begins in ')+Math.ceil(CONFIG.freezeTime-G.elapsed);
   else if(G.msgT>0){ G.msgT-=dt; if(G.msgT<=0) $('msg').textContent=''; }
   else if(!p.alive) $('msg').textContent=G.spectate>=0?'◄  spectating '+(G.survivors.find(s=>s.id===G.spectate)||{}).name+'  ►':'';
@@ -1569,6 +1575,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   drainEvents:{get:()=>drainEvents,configurable:true},
   draw:{get:()=>draw,configurable:true},
   drawVentFX:{get:()=>drawVentFX,configurable:true},
+  edgeTurn:{get:()=>edgeTurn,configurable:true},
   endRound:{get:()=>endRound,configurable:true},
   entitySpeed:{get:()=>entitySpeed,configurable:true},
   esc:{get:()=>esc,configurable:true},
@@ -1589,6 +1596,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   leaveGame:{get:()=>leaveGame,configurable:true},
   lobbyTick:{get:()=>lobbyTick,configurable:true},
   lobbyTimer:{get:()=>lobbyTimer, set:v=>{lobbyTimer=v;},configurable:true},
+  lockByClick:{get:()=>lockByClick, set:v=>{lockByClick=v;},configurable:true},
   lockPointer:{get:()=>lockPointer,configurable:true},
   locked:{get:()=>locked, set:v=>{locked=v;},configurable:true},
   los:{get:()=>los,configurable:true},
@@ -1606,6 +1614,8 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   makeVentMesh:{get:()=>makeVentMesh,configurable:true},
   makeWallTex:{get:()=>makeWallTex,configurable:true},
   mkCanvas:{get:()=>mkCanvas,configurable:true},
+  mouseIn:{get:()=>mouseIn, set:v=>{mouseIn=v;},configurable:true},
+  mouseX:{get:()=>mouseX, set:v=>{mouseX=v;},configurable:true},
   nearby:{get:()=>nearby,configurable:true},
   nearestInteractable:{get:()=>nearestInteractable,configurable:true},
   neighbors:{get:()=>neighbors,configurable:true},
@@ -1642,6 +1652,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   rosterBotNames:{get:()=>rosterBotNames,configurable:true},
   runEntityJump:{get:()=>runEntityJump,configurable:true},
   saveSettings:{get:()=>saveSettings,configurable:true},
+  setAnomalies:{get:()=>setAnomalies,configurable:true},
   setBots:{get:()=>setBots,configurable:true},
   setEntity:{get:()=>setEntity,configurable:true},
   setViewerModel:{get:()=>setViewerModel,configurable:true},
@@ -1656,6 +1667,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   stainOverlay:{get:()=>stainOverlay,configurable:true},
   startGame:{get:()=>startGame,configurable:true},
   step:{get:()=>step,configurable:true},
+  survivorControls:{get:()=>survivorControls,configurable:true},
   syncSettingsUI:{get:()=>syncSettingsUI,configurable:true},
   tmpCol:{get:()=>tmpCol,configurable:true},
   toTex:{get:()=>toTex,configurable:true},
@@ -1665,6 +1677,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   updateAtmosphere:{get:()=>updateAtmosphere,configurable:true},
   updateCorpse:{get:()=>updateCorpse,configurable:true},
   updateLights:{get:()=>updateLights,configurable:true},
+  updateLookUI:{get:()=>updateLookUI,configurable:true},
   updateMotes:{get:()=>updateMotes,configurable:true},
   updatePlayer:{get:()=>updatePlayer,configurable:true},
   updateSanity:{get:()=>updateSanity,configurable:true},

@@ -138,7 +138,7 @@ export function updateStamina(s, dt) {
 }
 function applyHuman(a, inp, dt) {
   if (!a.alive) return;
-  a.yaw = +inp.yaw || 0; a.pitch = clamp(+inp.pitch || 0, -1.35, 1.35); a.lean = clamp(+inp.lean || 0, -1, 1); a.leanOff = clamp(+inp.leanOff || 0, -0.6, 0.6);
+  a.yaw = +inp.yaw || 0; a.pitch = clamp(+inp.pitch || 0, -1.35, 1.35); a.lean = clamp(+inp.lean || 0, -1, 1); a.leanOff = clamp(+inp.leanOff || 0, -(a.isMonster ? CONFIG.leanEntity : CONFIG.leanSurvivor), a.isMonster ? CONFIG.leanEntity : CONFIG.leanSurvivor);
   const stuck = a.inVent || a.jumpT != null || (a.isMonster && (a.frozen || a.ripT > 0));
   if (stuck) { a.moving = false; a.mode = 'idle'; a.crouching = false; a.budget = 0; if (!a.isMonster) updateStamina(a, dt); return; }
   a.crouching = !!inp.crouch;
@@ -467,8 +467,8 @@ export function snapshot(W) {
   return {
     tl: r2(W.timeLeft), el: r2(W.elapsed),
     s: W.survivors.map(s => [s.id, r2(s.pos.x), r2(s.pos.z), r2(s.yaw), r2(s.pitch), s.mode, s.moving ? 1 : 0, s.crouching ? 1 : 0, r2(s.leanOff || 0), s.alive ? 1 : 0,
-      s.inVent ? s.inVent.id : -1, r2(s.stamina), s.exhausted ? 1 : 0, r2(s.sanity), r2(s.exhaustT || 0)]),
-    m: { x: r2(m.pos.x), z: r2(m.pos.z), yaw: r2(m.yaw), pitch: r2(m.pitch), mode: m.mode, moving: m.moving ? 1 : 0, crouching: m.crouching ? 1 : 0, state: m.state,
+      s.inVent ? s.inVent.id : -1, r2(s.stamina), s.exhausted ? 1 : 0, r2(s.sanity), r2(s.exhaustT || 0), r2(s.lean || 0)]),
+    m: { x: r2(m.pos.x), z: r2(m.pos.z), yaw: r2(m.yaw), pitch: r2(m.pitch), lean: r2(m.lean || 0), leanOff: r2(m.leanOff || 0), mode: m.mode, moving: m.moving ? 1 : 0, crouching: m.crouching ? 1 : 0, state: m.state,
       disguised: m.disguised ? 1 : 0, look: m.look, revealT: r2(m.revealT), burstT: r2(m.burstT), burstCD: r2(m.burstCD), mimicCD: r2(m.mimicCD), biteCD: r2(m.biteCD),
       swipeCD: r2(m.swipeCD), ripCD: r2(m.ripCD), ripT: r2(m.ripT), cooldown: r2(m.cooldown), atkLock: r2(m.atkLock), frozen: m.frozen ? 1 : 0, ability: m.ability, seen: m.seen },
     b: W.blackouts.map(b => [r2(b.x), r2(b.z), r2(b.r), r2(b.t), r2(b.dur)]),
