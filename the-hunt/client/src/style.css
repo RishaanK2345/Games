@@ -73,3 +73,4 @@
   .opt:disabled{opacity:.35;cursor:not-allowed}
   .warn{margin-top:14px;padding:9px 11px;border:1px solid rgba(243,201,107,.45);background:rgba(243,201,107,.07);color:#f3c96b;font-size:11px;line-height:1.5}
   .warn b{letter-spacing:1px}
+  .credit{position:fixed;left:14px;bottom:10px;font-size:11px;letter-spacing:1px;color:#e8dca0;opacity:.45;pointer-events:none}
