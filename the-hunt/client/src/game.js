@@ -529,7 +529,7 @@ function animateEntity(m,dt,t){
   let gx=0, gz=0; if(!m.frozen&&Math.random()<dt*0.25){ gx=(Math.random()-0.5)*0.1; gz=(Math.random()-0.5)*0.1; }
   m.mesh.position.x+=gx; m.mesh.position.z+=gz; m.mesh.position.y=Math.abs(Math.sin(ph))*0.05*w;
 }
-const TEAM_COLORS=[0x2f6fd6,0xd03a2a,0x2fa84a,0x8d4fd6];
+const TEAM_COLORS=[0x2f6fd6,0xd03a2a,0x2fa84a,0x8d4fd6,0xe0902a];   // one armband color per survivor
 const lathe=(pts,seg)=>new THREE.LatheGeometry(pts.map(([r,y])=>new THREE.Vector2(Math.max(r,0.0005),y)),seg||14);
 // hazmat suit survivor: baggy yellow suit, hood with dark visor, respirator, air tank, team-color armband
 function makeSurvivorMesh(i){
@@ -538,7 +538,7 @@ function makeSurvivorMesh(i){
   const rubber=new THREE.MeshStandardMaterial({color:srgb(0x1c1c1b),roughness:0.72});
   const metal=new THREE.MeshStandardMaterial({color:srgb(0x8a8a84),roughness:0.35,metalness:0.8});
   const visor=new THREE.MeshStandardMaterial({color:srgb(0x0e1215),roughness:0.04,metalness:0.6,transparent:true,opacity:0.94});
-  const tape=new THREE.MeshStandardMaterial({color:srgb(TEAM_COLORS[i%4]),roughness:0.45});
+  const tape=new THREE.MeshStandardMaterial({color:srgb(TEAM_COLORS[i%TEAM_COLORS.length]),roughness:0.45});
   const limb=(len,r0,rm,r1)=>lathe([[r1*0.7,-len],[r1,-len*0.94],[rm*1.05,-len*0.55],[rm,-len*0.3],[r0,-len*0.06],[r0*0.7,0]],12);
   const add=(parent,geo,mat,x,y,z)=>{ const ms=new THREE.Mesh(geo,mat); ms.position.set(x||0,y||0,z||0); parent.add(ms); return ms; };
   const hips=new THREE.Group(); hips.position.y=0.95; root.add(hips);
@@ -805,10 +805,11 @@ function beginRound(opts,myPid,net){
 /* =====================================================================
    INPUT
    ===================================================================== */
-// Browsers only lock the mouse right after a click. A round that starts from the lobby
-// countdown can't lock it, so we show "click to look around" instead of giving up.
-// Only if a lock fails AFTER a real click (e.g. inside an embedded page that forbids it)
-// do we switch to free-look: hidden cursor, mouse turns you, edges keep turning.
+// Browsers only lock the mouse right after a click, and rounds start from the lobby
+// countdown. So from the first frame of a round the cursor is hidden and the mouse
+// turns you without clicking ("free-look"); parking the cursor at the left/right edge
+// keeps turning. Your first click upgrades that to a real lock (unlimited turning).
+// If even a click-triggered lock is refused (embedded pages), free-look just stays on.
 let lockByClick=false, mouseX=0.5, mouseIn=false;
 function lockPointer(byClick){
   if(noLock||locked) return;
@@ -820,20 +821,18 @@ document.addEventListener('pointerlockerror',()=>{ if(lockByClick) noLock=true; 
 document.addEventListener('mousemove',e=>{
   mouseX=e.clientX/Math.max(1,innerWidth); mouseIn=true;
   if(!G||G.over||G.paused||G.menuOpen) return;
-  if(!(locked||noLock)) return;
   const p=G.player, k=0.0022*PREF.sens; p.yaw-=e.movementX*k; p.pitch=clamp(p.pitch-e.movementY*k*(PREF.invert?-1:1),-1.35,1.35);
 });
 document.addEventListener('mouseleave',()=>{ mouseIn=false; });
 /** free-look fallback: holding the cursor near the left/right edge keeps turning you */
 function edgeTurn(dt){
-  if(!noLock||!mouseIn||!G||G.over||G.paused||G.menuOpen) return;
+  if(locked||!mouseIn||!G||G.over||G.paused||G.menuOpen) return;
   const E=0.08, d=mouseX<E?(E-mouseX)/E:mouseX>1-E?-(mouseX-(1-E))/E:0;
   if(d) G.player.yaw+=d*2.4*PREF.sens*dt;
 }
 function updateLookUI(){
   const inRound=!!(G&&!G.over&&!G.menuOpen);
-  $('clickPrompt').classList.toggle('hidden',!(inRound&&!locked&&!noLock));
-  canvas.style.cursor=inRound&&(locked||noLock)?'none':'';
+  canvas.style.cursor=inRound?'none':'';
 }
 canvas.addEventListener('mousedown',e=>{
   if(VIEW){ dragging=true; return; }
@@ -879,7 +878,7 @@ async function openOnlineLobby(code){
   NET={room,me:room.sessionId};
   room.onMessage('lobby',L=>{ if(!NET||NET.room!==room) return;
     const players=L.players.map(q=>({...q,joined:true,you:q.key===NET.me}));
-    while(players.length<5) players.push({joined:false});
+    while(players.length<6) players.push({joined:false});
     LOBBY={online:true,seed:L.code,size:L.size,anomalies:L.anomalies,bots:L.bots,entity:L.entity,countdown:L.countdown,players};
     renderLobby(); });
   room.onMessage('start',opts=>{ if(!NET||NET.room!==room) return; clearInterval(lobbyTimer); beginRound(opts,NET.me,NET); });
@@ -962,7 +961,7 @@ function leaveGame(keepRoom){
 }
 
 /* =====================================================================
-   USERNAME + ROOM LOBBY (5 slots; bots fill empty ones until multiplayer)
+   USERNAME + ROOM LOBBY (6 slots; bots fill empty ones)
    ===================================================================== */
 function playerName(){ return (PREF.name||'').trim()||'Wanderer'; }
 $('nameIn').value=PREF.name||'';
@@ -1003,7 +1002,7 @@ function renderLobby(){
   const opts=[`<option value="-1">Random</option>`].concat(L.players.map((q,i)=>(q.joined&&(!q.bot||L.bots))?`<option value="${i}">${esc(q.name)}${q.you?' (you)':''}</option>`:'')).join('');
   const sel=$('entityPick'); if(sel.dataset.o!==opts){ sel.innerHTML=opts; sel.dataset.o=opts; } sel.value=String(L.entity); sel.disabled=!isHost; $('botsOn').disabled=$('botsOff').disabled=!isHost;
   $('entityPick').previousElementSibling.textContent=isHost?'Host: choose the Entity':'Only the host can change this';
-  $('lbStatus').textContent=L.countdown>=0?`Everyone's ready. Starting in ${Math.ceil(L.countdown)}…`:`${joined}/5 in room · ${ready}/${joined} ready`+(!L.bots&&joined<2?' · AI off: no one to play against':'');
+  $('lbStatus').textContent=L.countdown>=0?`Everyone's ready. Starting in ${Math.ceil(L.countdown)}…`:`${joined}/6 in room · ${ready}/${joined} ready`+(!L.bots&&joined<2?' · AI off: no one to play against':'');
 }
 const esc=t=>String(t).replace(/[<>&"]/g,'');
 function setEntity(i){

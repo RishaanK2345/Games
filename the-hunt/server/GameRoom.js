@@ -10,7 +10,7 @@ const SNAP_EVERY = 0.05;      // positions to clients 20 times a second
 const ACTIVE = new Map();     // room code -> room (one room per code)
 
 export class GameRoom extends Room {
-  maxClients = 5;
+  maxClients = 6;
 
   onCreate(o) {
     const code = String(o.code || '').replace(/\D/g, '').slice(0, 9);
@@ -60,9 +60,9 @@ export class GameRoom extends Room {
   onDispose() { if (ACTIVE.get(this.code) === this) ACTIVE.delete(this.code); }
 
   /* ---------- lobby ---------- */
-  slots() {   // humans in join order, then bots to fill 5 (if AI is on)
+  slots() {   // humans in join order, then bots to fill 6 (if AI is on)
     const out = this.humans.map(h => ({ key: h.sid, name: h.name, host: h.host, ready: h.ready, bot: false }));
-    if (this.settings.bots) botNames(this.code, this.humans.map(h => h.name)).slice(0, 5 - out.length)
+    if (this.settings.bots) botNames(this.code, this.humans.map(h => h.name)).slice(0, 6 - out.length)
       .forEach((n, i) => out.push({ key: 'bot:' + i, name: n, host: false, ready: true, bot: true }));
     return out;
   }

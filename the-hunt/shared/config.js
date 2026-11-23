@@ -38,7 +38,7 @@ export const CONFIG = {
   hearWalk: 7,
   visionRange: 30,
   visionFov: 110,          // degrees
-  survivors: 4,
+  survivors: 5,
   leanSurvivor: 0.45,      // how far you can lean out (m), limited by walls
   leanEntity: 0.6,
   entityCrouchSpeed: 0.55, // Entity speed multiplier while crouched

@@ -1,6 +1,6 @@
 # The Hunt (Level 0)
 
-4 survivors vs 1 Entity in a procedurally generated Backrooms Level 0.
+5 survivors vs 1 Entity in a procedurally generated Backrooms Level 0.
 
 > ⚠ **Photosensitivity warning:** flashing and flickering lights, red flashes, jumpscares and loud sounds.
 Play offline against bots, or online with friends (empty slots fill with bots).

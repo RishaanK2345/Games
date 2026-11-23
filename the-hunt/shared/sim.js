@@ -12,7 +12,7 @@ import { generateMap, bfs, pathFrom } from './mapgen.js';
 import { MAP, setWorld, BOXES, cellOf, pointBlocked, collide, los } from './physics.js';
 import { pickAnomaly } from './anomalies.js';
 
-export const ENTITY_ID = 100;   // survivors are 0..3
+export const ENTITY_ID = 100;   // survivors are 0..4
 let G = null;                    // the round being simulated right now
 
 /** Point the sim (and collision) at a round before stepping it. Several rooms can share one server. */
@@ -368,7 +368,7 @@ function toggleMimic(m) {
   if (m.disguised) { m.disguised = false; m.revealT = CONFIG.revealTime; m.mimicCD = CONFIG.mimicCooldown; emit({ t: 'reveal' }); return true; }
   if (m.mimicCD > 0 || m.revealT > 0) return false;
   // borrow the look of a living survivor (their armband color)
-  const alive = G.survivors.filter(s => s.alive); const who = alive.length ? alive[Math.floor(G.evRng() * alive.length)] : (G.survivors[0] || { id: Math.floor(G.evRng() * 4) });
+  const alive = G.survivors.filter(s => s.alive); const who = alive.length ? alive[Math.floor(G.evRng() * alive.length)] : (G.survivors[0] || { id: Math.floor(G.evRng() * 5) });
   m.disguised = true; m.look = who.id; endBurst(m); emit({ t: 'disguise', look: who.id }); return true;
 }
 function updateMimic(m, dt) { if (m.revealT > 0) m.revealT = Math.max(0, m.revealT - dt); if (!m.disguised && m.revealT <= 0) m.mimicCD = Math.max(0, m.mimicCD - dt); }
