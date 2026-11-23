@@ -361,7 +361,11 @@ function updateMonsterBot(m, dt) {
 /* =====================================================================
    ENTITY ABILITIES: dash or mimic, and the two attacks
    ===================================================================== */
-export function entitySpeed(m) { if (m.ripT > 0) return 0; if (m.disguised) return m.crouching ? CONFIG.crouchSpeed / CONFIG.entityCrouchSpeed : CONFIG.mimicSpeed; return (m.burstT > 0 ? CONFIG.entityBurstSpeed : CONFIG.monsterSpeed) * (m.cooldown > 0 ? 0.45 : 1); }
+export function entitySpeed(m) { if (m.ripT > 0) return 0; if (m.disguised) return m.crouching ? CONFIG.crouchSpeed / CONFIG.entityCrouchSpeed : CONFIG.mimicSpeed;
+  return (m.burstT > 0 ? CONFIG.entityBurstSpeed : CONFIG.monsterSpeed) * (m.cooldown > 0 ? 0.45 : 1) * (inTerror(m) ? CONFIG.terrorBoost : 1); }
+/** a survivor is within the Entity's terror radius (where they get the heartbeat + red); not while it's disguised */
+export function inTerror(m) { if (m.disguised || m.revealT > 0 || !G) return false;
+  for (const s of G.survivors) if (s.alive && !s.inVent && dist2(s.pos, m.pos) < CONFIG.terrorRadius) return true; return false; }
 function entityBurst(m) {
   if (m.ability !== 'dash' || m.disguised) return false;
   if (m.frozen || m.burstT > 0 || m.burstCD > 0 || m.cooldown > 0) return false;

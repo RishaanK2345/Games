@@ -20,6 +20,8 @@ export const CONFIG = {
   sprintSpeed: 5.9,
   crouchSpeed: 1.6,
   monsterSpeed: 4.65,       // between walk and sprint
+  terrorRadius: 24,        // survivors inside this range get the heartbeat + red vignette...
+  terrorBoost: 1.03,       // ...and the Entity moves 3% faster (walk and Dash) while anyone is inside it
   entityBurstSpeed: 8,   // Entity burst: much faster than a sprinting survivor
   entityBurstTime: 3,
   entityBurstCooldown: 12.5, // starts when the burst ends

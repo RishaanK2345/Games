@@ -1468,7 +1468,8 @@ function draw(dt){
   $('cross').style.display=p.alive?'':'none';
   // heartbeat + vignette (survivor view)
   let fear=0;
-  if(!host.isMonster&&host.alive&&!m.frozen&&!G.over&&!m.disguised&&!(m.revealT>0)){ const d=dist2(host.pos,m.pos);   // no giveaway while it's mimicking or mid-unveil fear=clamp(1-d/24,0,1);
+  // no giveaway while it's mimicking or mid-unveil
+  if(!host.isMonster&&host.alive&&!m.frozen&&!G.over&&!m.disguised&&!(m.revealT>0)){ const d=dist2(host.pos,m.pos); fear=clamp(1-d/CONFIG.terrorRadius,0,1);
     if(fear>0){ G.beatT-=dt; if(G.beatT<=0){ G.beatT=0.36+(1-fear)*0.85; const v=0.15+0.5*fear; SFX.thump(v); SFX.thump(v*0.7,0.17); } } }
   if(G.ejump) fear=1;
   $('vignette').style.opacity=(fear*0.75).toFixed(2); G.fear=fear;
