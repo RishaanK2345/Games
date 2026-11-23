@@ -1404,6 +1404,7 @@ function update(dt){
   if(seenMe&&!G.alerted&&G.stingCD<=0){ SFX.sting(); G.stingCD=8; } G.alerted=seenMe;
 }
 function draw(dt){
+  const lateLoud=lateRound()?CONFIG.lateStepLoud:1, lateFar=lateRound()?1.5:1;   // last 30 s: survivors are louder
   const p=G.player, m=G.monster, t=G.elapsed;
   // camera host
   let host=p, eye;
@@ -1425,7 +1426,7 @@ function draw(dt){
     if(Math.floor(a.stepPhase)!==before&&a.vel>0.6&&(a.mode!=='crouch'||isWet(a.pos))&&!a.inVent){
       const wetS=isWet(a.pos);
       if(a===p){ if(wetS) SFX.squelch(null,null,a.mode==='sprint'?0.16:0.1,false); else SFX.step(null,null,a.mode==='sprint'?0.09:0.05,false,true); }
-      else if(Math.hypot(a.pos.x-cam0.x,a.pos.z-cam0.z)<(wetS?30:24)){ const mf=!los(cam0.x,cam0.z,a.pos.x,a.pos.z); if(wetS) SFX.squelch(a.pos.x,a.pos.z,0.35,mf); else SFX.step(a.pos.x,a.pos.z,0.22,mf,false); }
+      else if(Math.hypot(a.pos.x-cam0.x,a.pos.z-cam0.z)<(wetS?30:24)*lateFar){ const mf=!los(cam0.x,cam0.z,a.pos.x,a.pos.z); if(wetS) SFX.squelch(a.pos.x,a.pos.z,Math.min(0.9,0.35*lateLoud),mf); else SFX.step(a.pos.x,a.pos.z,0.22*lateLoud,mf,false); }
     }
   }
   const bw=clamp((host.vel||0)/3,0,1.6)*PREF.bob, bp=host.isMonster?host.walkPhase/Math.PI:host.stepPhase;
@@ -1444,7 +1445,7 @@ function draw(dt){
   if(G.mimicMesh){ const fa=G.mimicAgent; G.mimicMesh.visible=showFake&&host!==m; G.mimicMesh.position.set(m.pos.x+(revealing?(Math.random()-0.5)*0.15:0),0,m.pos.z); G.mimicMesh.rotation.y=m.yaw;
     fa.vel=m.vel||0; fa.crouching=!!m.crouching; fa.lean=m.lean||0; fa.mode=m.crouching?'crouch':fa.vel>0.3?'walk':'idle'; fa.moving=fa.vel>0.3; const b4=Math.floor(fa.stepPhase); fa.stepPhase+=dt*fa.vel/STEP_LEN.walk;
     if(G.mimicMesh.visible) animateSuit(fa,dt,t);
-    if(m.disguised&&Math.floor(fa.stepPhase)!==b4&&fa.vel>0.6&&!m.crouching&&m!==p&&Math.hypot(m.pos.x-camera.position.x,m.pos.z-camera.position.z)<24) SFX.step(m.pos.x,m.pos.z,0.22,!los(camera.position.x,camera.position.z,m.pos.x,m.pos.z),false); }
+    if(m.disguised&&Math.floor(fa.stepPhase)!==b4&&fa.vel>0.6&&!m.crouching&&m!==p&&Math.hypot(m.pos.x-camera.position.x,m.pos.z-camera.position.z)<24*lateFar) SFX.step(m.pos.x,m.pos.z,0.22*lateLoud,!los(camera.position.x,camera.position.z,m.pos.x,m.pos.z),false); }
   if(m.disguised||(revealing&&showFake)) mm.visible=false;
   mm.userData.spine[0].pv.visible=!(m.isPlayer&&host===p); mm.userData.legs[0].th.pv.parent.parent.children[0].visible=!(m.isPlayer&&host===p); mm.userData.haze.forEach(h=>h.visible=!(m.isPlayer&&host===p));
   animateEntity(m,dt,t);

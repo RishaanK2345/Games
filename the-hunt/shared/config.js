@@ -53,6 +53,7 @@ export const CONFIG = {
   fogFar: 25,
   corruptTime: 120,
   redTime: 30,             // last N seconds: every light turns red
+  lateStepLoud: 1.8,       // ...survivor footsteps this much louder (and heard 1.5x farther)
   lateVentTime: 5,         // ...and in those last N seconds a vent only holds you this long per visit
   blackoutMin: 25,         // seconds between regional blackouts (random in range)
   blackoutMax: 45,

@@ -199,7 +199,8 @@ function useAction(a) {
    SHARED HELPERS
    ===================================================================== */
 export function isWet(pos) { if (!MAP || !MAP.wet) return false; const [cx, cy] = cellOf(pos); return MAP.wet.has(cx + cy * MAP.N); }
-export function noiseRadius(s) { if (!s.alive || !s.moving || s.inVent) return 0; const w = isWet(s.pos);
+export function noiseRadius(s) { if (!s.alive || !s.moving || s.inVent) return 0; return noiseBase(s) * (lateRound() ? 1.5 : 1); }   // last 30 s: footsteps carry farther
+function noiseBase(s) { const w = isWet(s.pos);
   if (s.mode === 'sprint') return CONFIG.hearSprint * (w ? 1.3 : 1); if (s.mode === 'walk') return CONFIG.hearWalk * (w ? 2 : 1); return w ? 5 : 0; }
 function followPath(a, speed, dt) {
   if (!a.path.length || speed <= 0) return false;
