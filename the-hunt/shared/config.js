@@ -75,6 +75,8 @@ export const CONFIG = {
   ventWarn: 15,            // seconds in a vent: first insanity warning
   ventSmilers: 20,         // smilers start showing
   ventDeath: 25,           // smilers get you
+  shiftTimes: [120, 60, 30], // WRONG WAY anomaly: the maze rearranges at these seconds left
+  shiftFrac: 0.06,         // ...opening and closing this fraction of cells' worth of walls each time
   spawnSpread: 3,          // survivors spawn at least this many cells apart
   spawnSafe: 4,            // ...and the Entity at least this many cells from every survivor
   sanityRecover: 1,        // sanity time drained per second once you're out

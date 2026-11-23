@@ -138,7 +138,33 @@ export function step(W, dt) {
   if (W.lagComp) recordHistory(W);
   // win check
   const alive = W.survivors.filter(s => s.alive).length;
+  if (CONFIG.wallShifts) for (let i = 0; i < CONFIG.shiftTimes.length; i++) { W.shifted = W.shifted || [];
+    if (!W.shifted[i] && W.timeLeft <= CONFIG.shiftTimes[i] && CONFIG.shiftTimes[i] < CONFIG.roundTime) { W.shifted[i] = true; wallShift(i + 1); } }
   if (alive === 0 && W.survivors.length) endRound('monster'); else if (W.timeLeft <= 0) endRound('survivors');
+}
+/* ---------- WRONG WAY: the maze rearranges ----------
+   Opens some walls and raises others. A wall never rises on anyone (alive or
+   dead), on a vent or in front of one, and the maze always stays connected. */
+function wallShift(n) {
+  const map = MAP, N = map.N, S = map.S, T = CONFIG.wallThick, R = makeRng(G.seed + '#shift' + n);
+  const box = (k, x, y, pad) => k === 'h' ? { x0: x * S - T / 2 - pad, x1: (x + 1) * S + T / 2 + pad, z0: y * S - T / 2 - pad, z1: y * S + T / 2 + pad }
+                                          : { x0: x * S - T / 2 - pad, x1: x * S + T / 2 + pad, z0: y * S - T / 2 - pad, z1: (y + 1) * S + T / 2 + pad };
+  const inBox = (b, p) => p.x > b.x0 && p.x < b.x1 && p.z > b.z0 && p.z < b.z1;
+  const agents = [G.monster, ...G.survivors].filter(a => !a.absent);
+  const ventOn = (k, x, y) => G.vents.some(v => inBox(box(k, x, y, 0.05), { x: v.px, z: v.pz }));
+  const unsafe = (k, x, y) => agents.some(a => inBox(box(k, x, y, 0.75), a.pos)) || G.vents.some(v => inBox(box(k, x, y, 0.6), v.front));
+  const reach = () => { const d = bfs(map, 0, 0).dist; let c = 0; for (const x of d) if (x >= 0) c++; return c; };
+  const total = reach(), walls = [], gaps = [];
+  for (let y = 1; y < N; y++) for (let x = 0; x < N; x++) (map.h[y][x] ? walls : gaps).push(['h', x, y]);
+  for (let y = 0; y < N; y++) for (let x = 1; x < N; x++) (map.v[y][x] ? walls : gaps).push(['v', x, y]);
+  const K = Math.max(4, Math.round(N * N * CONFIG.shiftFrac)), ch = [];
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  let opened = 0; for (const [k, x, y] of shuffle(walls)) { if (opened >= K) break; if (ventOn(k, x, y)) continue; map[k][y][x] = false; ch.push([k, x, y, 0]); opened++; }
+  let closed = 0; for (const [k, x, y] of shuffle(gaps)) { if (closed >= K) break; if (unsafe(k, x, y)) continue;
+    map[k][y][x] = true; if (reach() < total) { map[k][y][x] = false; continue; } ch.push([k, x, y, 1]); closed++; }
+  setWorld(map); G.boxes = BOXES;
+  for (const a of agents) { a.path = []; a.repathT = 0; a.think = 0; }
+  emit({ t: 'shift', n, ch });
 }
 function endRound(winner) { G.over = true; G.winner = winner; emit({ t: 'end', winner, time: fmt(CONFIG.roundTime - Math.max(0, G.timeLeft)) }); }
 

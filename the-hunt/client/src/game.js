@@ -181,6 +181,12 @@ const SFX={
   },
   ok(){ return this.ctx&&this.ctx.state==='running'; },
   env(g,t,a,peak,dec){ g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(peak,t+a); g.gain.exponentialRampToValueAtTime(0.0001,t+a+dec); },
+  rumble(){   // the halls moving: a long low grind
+    if(!this.ok()) return; const c=this.ctx,t=c.currentTime,g=c.createGain(); this.env(g,t,0.25,0.55,2.2);
+    const n=c.createBufferSource(); n.buffer=this.noise; n.loop=true; n.playbackRate.value=0.25; const lp=c.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=140;
+    const o=c.createOscillator(); o.type='sawtooth'; o.frequency.setValueAtTime(34,t); o.frequency.linearRampToValueAtTime(27,t+2.4); const og=c.createGain(); og.gain.value=0.25;
+    n.connect(lp); lp.connect(g); o.connect(og); og.connect(lp); g.connect(this.master); n.start(t); o.start(t); n.stop(t+2.6); o.stop(t+2.6);
+  },
   thump(vol,when=0){
     if(!this.ok()) return; const c=this.ctx, t=c.currentTime+when, o=c.createOscillator(), g=c.createGain();
     o.type='sine'; o.frequency.setValueAtTime(70,t); o.frequency.exponentialRampToValueAtTime(38,t+0.15);
@@ -338,6 +344,10 @@ function stainOverlay(map,ceiling){
   const t=new THREE.CanvasTexture(c); t.encoding=THREE.sRGBEncoding; t.anisotropy=8; if(ceiling) t.flipY=false;
   return new THREE.MeshBasicMaterial({map:t,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
 }
+function placeWall(s,H){   // one wall slot at height fraction s.h (0 = sunk into the floor)
+  const p=new THREE.Vector3(s.x,H*s.h/2-0.002,s.z), q=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),s.r?Math.PI/2:0);
+  const m=new THREE.Matrix4().compose(p,q,new THREE.Vector3(1,Math.max(1e-4,s.h),1)); s.im.setMatrixAt(s.i,m); s.im.instanceMatrix.needsUpdate=true;
+}
 function buildScene(map){
   if(!TEX) TEX=makeTextures();
   const scene=new THREE.Scene(); scene.background=FOG.clone(); scene.fog=new THREE.Fog(FOG,CONFIG.fogFar<20?1:2,CONFIG.fogFar);
@@ -346,13 +356,14 @@ function buildScene(map){
   const m=new THREE.Matrix4(), q=new THREE.Quaternion(), one=new THREE.Vector3(1,1,1), p=new THREE.Vector3(), rot=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);
   // walls: 3 wallpaper variants so damage doesn't visibly repeat
   const wallMats=TEX.walls.map(t=>new THREE.MeshStandardMaterial({map:t.map,normalMap:t.normal,normalScale:new THREE.Vector2(0.7,0.7),roughness:0.86,metalness:0}));
+  // every wall slot gets an instance (missing walls are scaled to 0) so the WRONG WAY anomaly can raise/lower them
   const segs=[];
-  for(let y=0;y<=N;y++) for(let x=0;x<N;x++) if(map.h[y][x]) segs.push({x:(x+0.5)*S,z:y*S,r:0});
-  for(let y=0;y<N;y++) for(let x=0;x<=N;x++) if(map.v[y][x]) segs.push({x:x*S,z:(y+0.5)*S,r:1});
-  const groups=[[],[],[]]; segs.forEach((s,i)=>groups[(i*7+((s.x*13+s.z*7)|0))%3].push(s));
-  const wallGeo=new THREE.BoxGeometry(S+T,H,T);
+  for(let y=0;y<=N;y++) for(let x=0;x<N;x++) segs.push({k:'h',gx:x,gy:y,x:(x+0.5)*S,z:y*S,r:0,on:map.h[y][x]});
+  for(let y=0;y<N;y++) for(let x=0;x<=N;x++) segs.push({k:'v',gx:x,gy:y,x:x*S,z:(y+0.5)*S,r:1,on:map.v[y][x]});
+  const groups=[[],[],[]]; segs.forEach(s=>groups[((s.gx*7+s.gy*13+(s.r?5:0))%3+3)%3].push(s));
+  const wallGeo=new THREE.BoxGeometry(S+T,H,T), wallSlots={};
   groups.forEach((gr,vi)=>{ if(!gr.length) return; const im=new THREE.InstancedMesh(wallGeo,wallMats[vi],gr.length);
-    gr.forEach((s,k)=>{ p.set(s.x,H/2,s.z); m.compose(p,s.r?rot:q,one); im.setMatrixAt(k,m); }); scene.add(im); });
+    gr.forEach((s,k)=>{ s.im=im; s.i=k; s.h=s.on?1:0; wallSlots[s.k+s.gx+','+s.gy]=s; placeWall(s,H); }); scene.add(im); });
   if(map.pillars.length){
     const pg=new THREE.BoxGeometry(0.6,H,0.6), uv=pg.attributes.uv; for(let i=0;i<uv.count;i++) uv.setX(i,uv.getX(i)*0.6/(S+T));
     const pil=new THREE.InstancedMesh(pg,wallMats[0],map.pillars.length);
@@ -388,7 +399,7 @@ function buildScene(map){
   const DN=450, pos=new Float32Array(DN*3); for(let i=0;i<DN;i++){ pos[i*3]=(Math.random()-0.5)*16; pos[i*3+1]=0.2+Math.random()*2.7; pos[i*3+2]=(Math.random()-0.5)*16; }
   const mg=new THREE.BufferGeometry(); mg.setAttribute('position',new THREE.BufferAttribute(pos,3));
   const motes=new THREE.Points(mg,new THREE.PointsMaterial({color:new THREE.Color(1.4,1.3,1.05),size:0.011,transparent:true,opacity:0.32,depthWrite:false})); motes.frustumCulled=false; scene.add(motes);
-  return {scene,panels,pool,motes,hemi};
+  return {scene,panels,pool,motes,hemi,wallSlots};
 }
 function updateMotes(motes,cam,dt,t){
   const a=motes.geometry.attributes.position, d=a.array;
@@ -1239,6 +1250,9 @@ function handleEvent(e){
       if(me(a)){ a.pos={x:e.x,z:e.z}; showMsg((by?by.name.toUpperCase():'SOMEONE')+' SHOVED YOU',1.4); G.flash=Math.max(G.flash,0.2); }
       if(Math.hypot(a.pos.x-camera.position.x,a.pos.z-camera.position.z)<18) SFX.thump(0.55);
       break; }
+    case 'shift': {   // WRONG WAY: walls sink and rise; collision follows the server's map right away
+      for(const [k,x,y,on] of e.ch){ G.map[k][y][x]=!!on; const s=G.wallSlots[k+x+','+y]; if(s){ s.to=on?1:0; (G.wallAnim||(G.wallAnim=new Set())).add(s); } }
+      setWorld(G.map); G.boxes=BOXES; SFX.rumble(); G.shake=1.4; G.shiftFlick=1.2; break; }
     case 'ventKick': if(me(a)){ showMsg('THE VENT SPITS YOU OUT',2); G.flash=Math.max(G.flash,0.25); } break;
     case 'smilers': if(me(a)&&!G.jump){ G.jump={t:0,s:a}; SFX.scream(); } break;
     case 'caught': onCaught(e); break;
@@ -1300,7 +1314,8 @@ function updateAtmosphere(dt,cam){
   const r=G.redK; _tint.copy(TINT_WARM).lerp(TINT_RED,r);
   G.pool.forEach(pl=>pl.color.copy(LIGHT_WARM).lerp(LIGHT_RED,r));
   G.hemi.color.copy(HEMI_SKY).lerp(HEMI_RSKY,r); G.hemi.groundColor.copy(HEMI_GND).lerp(HEMI_RGND,r);
-  G.hemi.intensity=0.3*(1-0.9*dk)*(1-(ent?0.05:0.2)*r);
+  G.shiftFlick=Math.max(0,(G.shiftFlick||0)-dt);
+  G.hemi.intensity=0.3*(1-0.9*dk)*(1-(ent?0.05:0.2)*r)*(G.shiftFlick>0&&Math.random()<0.5?0.35:1);
   G.scene.fog.color.copy(FOG).lerp(FOG_RED,r).multiplyScalar(1-0.85*dk); G.scene.background.copy(G.scene.fog.color);
   if(G.fogBase===undefined) G.fogBase={near:G.scene.fog.near,far:G.scene.fog.far};
   const farB=G.fogBase.far*(ent?1+(CONFIG.entityRedVision-1)*r:1);
@@ -1420,6 +1435,10 @@ function update(dt){
   G.stingCD-=dt; const seenMe=!p.isMonster&&p.alive&&!m.disguised&&!!(m.seen&&m.seen.includes(p.id));
   if(seenMe&&!G.alerted&&G.stingCD<=0){ SFX.sting(); G.stingCD=8; } G.alerted=seenMe;
 }
+function animateWalls(dt){
+  if(!G.wallAnim||!G.wallAnim.size) return;
+  for(const s of G.wallAnim){ const d=s.to-s.h, st=dt/1.1; s.h=Math.abs(d)<=st?s.to:s.h+Math.sign(d)*st; placeWall(s,CONFIG.wallHeight); if(s.h===s.to) G.wallAnim.delete(s); }
+}
 function draw(dt){
   const lateLoud=lateRound()?CONFIG.lateStepLoud:1, lateFar=lateRound()?1.5:1;   // last 30 s: survivors are louder
   const p=G.player, m=G.monster, t=G.elapsed;
@@ -1450,6 +1469,8 @@ function draw(dt){
   const bob=(0.025-Math.abs(Math.sin(bp*Math.PI))*0.05)*bw*(host.isMonster?1.2:host.mode==='sprint'?1.2:0.8);
   camera.position.set(host.pos.x,eye+bob,host.pos.z);
   if(host.inVent){ camera.position.set(host.inVent.cam.x,0.36,host.inVent.cam.z); eye=0.36; }
+  animateWalls(dt);
+  if(G.shake>0){ G.shake-=dt; const a=Math.min(1,G.shake)*0.035; camera.position.x+=(Math.random()-0.5)*a; camera.position.y+=(Math.random()-0.5)*a; }
   camera.rotation.z=Math.sin(t*0.7)*0.004+Math.sin(bp*Math.PI)*0.007*bw+(host===p&&!p.isMonster?(p.mesh.userData.fall||0)*0.45:0);
   if(host===p&&p.leanOff){ const lx=Math.cos(p.yaw), lz=-Math.sin(p.yaw), lm=p.isMonster?CONFIG.leanEntity:CONFIG.leanSurvivor;
     camera.position.x+=lx*p.leanOff; camera.position.z+=lz*p.leanOff; camera.position.y-=Math.abs(p.leanOff)*0.12; camera.rotation.z-=(p.leanOff/lm)*0.14; }
@@ -1571,6 +1592,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   animateEntity:{get:()=>animateEntity,configurable:true},
   animateEntityViewArms:{get:()=>animateEntityViewArms,configurable:true},
   animateSuit:{get:()=>animateSuit,configurable:true},
+  animateWalls:{get:()=>animateWalls,configurable:true},
   applyFov:{get:()=>applyFov,configurable:true},
   applySnapshot:{get:()=>applySnapshot,configurable:true},
   beginRound:{get:()=>beginRound,configurable:true},
@@ -1661,6 +1683,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   pauseGame:{get:()=>pauseGame,configurable:true},
   pickAnomaly:{get:()=>pickAnomaly,configurable:true},
   pickEntity:{get:()=>pickEntity,configurable:true},
+  placeWall:{get:()=>placeWall,configurable:true},
   playerName:{get:()=>playerName,configurable:true},
   pointBlocked:{get:()=>pointBlocked,configurable:true},
   pushAction:{get:()=>pushAction,configurable:true},
