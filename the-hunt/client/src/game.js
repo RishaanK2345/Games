@@ -11,7 +11,7 @@ import { hashSeed, makeRng, clamp, dist2 } from '../../shared/rng.js';
 import { generateMap, neighbors, bfs, pathFrom } from '../../shared/mapgen.js';
 import { MAP, BOXES, setWorld, buildColliders, cellOf, nearby, pointBlocked, collide, los } from '../../shared/physics.js';
 import { ANOMALIES, pickAnomaly } from '../../shared/anomalies.js';
-import { createRound, step, bindRound, pickEntity, roundSeed, agentById, ENTITY_ID, fmt, angDiff, turnToward, speedOf, isWet, noiseRadius, isDark, blackoutAt, canSee, entitySpeed, usableVent, ventSideOK, canHide, lateRound } from '../../shared/sim.js';
+import { createRound, step, bindRound, pickEntity, roundSeed, ventLimits, agentById, ENTITY_ID, fmt, angDiff, turnToward, speedOf, isWet, noiseRadius, isDark, blackoutAt, canSee, entitySpeed, usableVent, ventSideOK, canHide, lateRound } from '../../shared/sim.js';
 import * as SIM from '../../shared/sim.js';
 import { BOT_NAMES, botNames as rosterBotNames, cleanName, GAME_VERSION } from '../../shared/roster.js';
 import { SERVER_URL, joinRoom } from './net.js';
@@ -672,20 +672,21 @@ function makeDuct(vent){
 function updateSanity(dt){
   const p=G.player; if(p.isMonster||!p.alive) return;
   if(p.inVent){
-    if(p.sanity>=CONFIG.ventWarn&&!p.warn1){ p.warn1=true; showMsg('something is in here with you',3); SFX.giggle(0.07); }
-    if(p.sanity>=CONFIG.ventSmilers&&!p.warn2){ p.warn2=true; showMsg('GET OUT',2.5); SFX.giggle(0.2); }
+    const L=ventLimits();
+    if(p.sanity>=L.warn&&!p.warn1){ p.warn1=true; showMsg('something is in here with you',3); SFX.giggle(0.07); }
+    if(p.sanity>=L.smilers&&!p.warn2){ p.warn2=true; showMsg('GET OUT',2.5); SFX.giggle(0.2); }
   }
-  if(p.sanity<CONFIG.ventWarn) p.warn1=false; if(p.sanity<CONFIG.ventSmilers) p.warn2=false;
+  { const L=ventLimits(); if(p.sanity<L.warn) p.warn1=false; if(p.sanity<L.smilers) p.warn2=false; }
   if(G.jump){ G.jump.t+=dt; if(G.jump.t>2.5) G.jump=null; }   // the sim ends it with a 'caught' event
 }
 function drawVentFX(dt,t,host){
   // grates swing open briefly when someone goes in or out
   for(const v of G.vents){ if(v.broken){ v.ripAnim+=dt; const hg=v.mesh.userData.hinge, q=clamp(v.ripAnim/0.55,0,1); hg.visible=true; hg.position.set(0.05*q,0.61*(1-q)+0.035*q,0.012+0.35*q); hg.rotation.set(-Math.PI/2*q-Math.sin(q*Math.PI)*0.8,0,q*0.35); continue; }
     v.openT=Math.max(0,v.openT-dt); v.open+=((v.openT>0?1:0)-v.open)*Math.min(1,dt*10); v.mesh.userData.hinge.rotation.x=-v.open*1.25; v.mesh.userData.hinge.visible=!(v.occupant&&v.occupant===host); }
-  const p=G.player, ins=(host===p&&!p.isMonster)?clamp((p.sanity-10)/(CONFIG.ventDeath-10),0,1):0; G.insane=ins;
+  const VL=ventLimits(), p=G.player, ins=(host===p&&!p.isMonster)?clamp((p.sanity-0.4*VL.death)/(0.6*VL.death),0,1):0; G.insane=ins;
   // smilers creeping up the duct behind you
-  if(G.duct){ const k=clamp((p.sanity-(CONFIG.ventWarn+1))/(CONFIG.ventDeath-CONFIG.ventWarn-1),0,1);
-    G.duct.userData.smilers.forEach((sp,i)=>{ const on=p.sanity>=CONFIG.ventWarn+1+i*2.5; sp.visible=on;
+  if(G.duct){ const k=clamp((p.sanity-(VL.warn+VL.k))/(VL.death-VL.warn-VL.k),0,1);
+    G.duct.userData.smilers.forEach((sp,i)=>{ const on=p.sanity>=VL.warn+(1+i*2.5)*VL.k; sp.visible=on;
       if(!on) return; const d=6.2-k*5.0+i*0.5; sp.position.set(sp.userData.x+Math.sin(t*0.7+i)*0.04,sp.userData.y,-d);
       sp.scale.setScalar(0.42); sp.material.opacity=(Math.random()<0.06?0.15:1)*(0.55+0.45*k); }); }
   $('hud').style.opacity=(G.jump||G.ejump)?0:1;
@@ -695,7 +696,7 @@ function drawVentFX(dt,t,host){
   else if(p.inVent) pr.textContent='[E] Leave vent';
   else { const n=nearestInteractable(p); pr.textContent=n?'[E] '+n.label:''; }
   // sanity meter
-  const sv=p.isMonster?0:p.sanity/CONFIG.ventDeath; $('sanWrap').classList.toggle('hidden',sv<=0.001); $('san').style.width=((1-sv)*100)+'%';
+  const sv=p.isMonster?0:clamp(p.sanity/VL.death,0,1); $('sanWrap').classList.toggle('hidden',sv<=0.001); $('san').style.width=((1-sv)*100)+'%';
   // whispers
   SFX.setWhisper(ins);
   // low-quality fallback distortion
@@ -708,7 +709,7 @@ function drawVentFX(dt,t,host){
     const vg=ovg.createRadialGradient(W/2,H/2,H*0.2,W/2,H/2,W*0.6); vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,0.6)'); ovg.fillStyle=vg; ovg.fillRect(0,0,W,H); }
   // static + smiles at the edge of your vision
   if(ins>0.05){ const n=Math.floor(ins*500); for(let i=0;i<n;i++){ const c=Math.random()*255|0; ovg.fillStyle=`rgba(${c},${c},${c},${0.08+0.25*ins})`; ovg.fillRect(Math.random()*ov.width,Math.random()*ov.height,2+Math.random()*3,1+Math.random()*2); } }
-  if(p.inVent&&p.sanity>=CONFIG.ventSmilers&&!G.jump){ const img=smilerCanvas();
+  if(p.inVent&&p.sanity>=VL.smilers&&!G.jump){ const img=smilerCanvas();
     for(let i=0;i<3;i++){ if(Math.random()<0.5) continue; const sz=60+ins*80, side=i%2, x=side?ov.width-sz*0.6-Math.random()*40:-sz*0.4+Math.random()*40, y=ov.height*(0.2+0.25*i)+Math.random()*10;
       ovg.globalAlpha=0.15+0.5*ins*Math.random(); ovg.drawImage(img,x,y,sz,sz); } ovg.globalAlpha=1; }
   // jumpscare
@@ -837,10 +838,10 @@ function edgeTurn(dt){
 /** the survivor's control strip at the bottom of the screen (live: shows exhaustion, vent state, spectating) */
 function survivorControls(p){
   if(!p.alive) return '[←] [→] switch who you spectate';
-  const late=lateRound(), lv=Math.ceil(p.lateVent==null?CONFIG.lateVentTime:p.lateVent);
-  if(p.inVent) return '[E] climb out  ·  [Hold 1] look back'+(late?'  ·  kicked out in '+lv+'s':'');
+  const late=lateRound();
+  if(p.inVent) return '[E] climb out  ·  [Hold 1] look back';
   if(p.downT>0) return 'KNOCKED DOWN';
-  return [p.exhausted?'[Shift] sprint '+Math.ceil(p.exhaustT||0)+'s':'[Shift] sprint','[C] crouch',p.pushCD>0?'[F] shove '+Math.ceil(p.pushCD)+'s':'[F] shove','[Space+A/D] lean','[Hold 1] look back',late?'[E] vent ('+CONFIG.lateVentTime+'s max)':'[E] vent'].join('  ·  ');
+  return [p.exhausted?'[Shift] sprint '+Math.ceil(p.exhaustT||0)+'s':'[Shift] sprint','[C] crouch',p.pushCD>0?'[F] shove '+Math.ceil(p.pushCD)+'s':'[F] shove','[Space+A/D] lean','[Hold 1] look back',late?'[E] vent ('+CONFIG.lateVentTime+'s limit)':'[E] vent'].join('  ·  ');
 }
 function updateLookUI(){
   const inRound=!!(G&&!G.over&&!G.menuOpen);
@@ -1293,7 +1294,7 @@ const LIGHT_WARM=srgb(0xfff0cf), LIGHT_RED=srgb(0xff2a18), HEMI_SKY=srgb(0xe8d39
 function updateAtmosphere(dt,cam){
   const red=G.timeLeft<=CONFIG.redTime?1:0;
   G.redK+=(red-G.redK)*(1-Math.exp(-1.2*dt));
-  if(red&&!G.redAnnounced&&!G.over){ G.redAnnounced=true; showMsg(CONFIG.redTime+' SECONDS'+(G.player.isMonster?'':'  ·  vents hold you '+CONFIG.lateVentTime+'s'),2.5); SFX.powerDown(null,null,true); }
+  if(red&&!G.redAnnounced&&!G.over){ G.redAnnounced=true; showMsg(CONFIG.redTime+' SECONDS'+(G.player.isMonster?'':'  ·  the smilers come after '+CONFIG.lateVentTime+'s in a vent'),2.5); SFX.powerDown(null,null,true); }
   const inD=isDark(cam)?1:0; G.darkK+=(inD-G.darkK)*(1-Math.exp(-3*dt));
   const ent=G.player.isMonster&&G.player.alive, dk=G.darkK*(ent?0.6:1);   // the Entity's eyes cope better with the dark
   const r=G.redK; _tint.copy(TINT_WARM).lerp(TINT_RED,r);
@@ -1708,6 +1709,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   updateSanity:{get:()=>updateSanity,configurable:true},
   updateViewer:{get:()=>updateViewer,configurable:true},
   usableVent:{get:()=>usableVent,configurable:true},
+  ventLimits:{get:()=>ventLimits,configurable:true},
   ventSideOK:{get:()=>ventSideOK,configurable:true},
   viewTime:{get:()=>viewTime,configurable:true},
   catchSurvivor:{get:()=>(...a)=>{ bindRound(G); const r=SIM.DEBUG.catchSurvivor(...a); drainEvents(); return r; },configurable:true},

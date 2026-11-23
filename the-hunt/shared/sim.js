@@ -77,13 +77,21 @@ export function createRound(o) {
   const rnd = map.rnd, N = map.N, S = map.S;
   const ent = o.entity, roster = o.roster;
   // spawns: survivors near a random cell, Entity at the farthest reachable cell
-  const sx = Math.floor(rnd() * N), sy = Math.floor(rnd() * N), from = bfs(map, sx, sy);
-  let far = 0; for (let c = 1; c < N * N; c++) if (from.dist[c] > from.dist[far]) far = c;
-  const near = []; for (let c = 0; c < N * N; c++) if (from.dist[c] >= 0 && from.dist[c] <= 2) near.push(c);
+  // spawns: everyone at a random spot, survivors spread apart, the Entity a safe distance from all of them
   const cc = c => ({ x: (c % N + 0.5) * S, z: (((c / N) | 0) + 0.5) * S });
-  const survivors = [], survRoster = roster.filter((q, i) => i !== ent);
+  const cdist = (a, b) => Math.abs(a % N - b % N) + Math.abs(((a / N) | 0) - ((b / N) | 0));
+  const reach = bfs(map, Math.floor(rnd() * N), Math.floor(rnd() * N)).dist;          // only cells you can walk to
+  const cells = []; for (let c = 0; c < N * N; c++) if (reach[c] >= 0) cells.push(c);
+  const pick = (ok) => { for (let tries = 0; tries < 400; tries++) { const c = cells[Math.floor(rnd() * cells.length)]; if (ok(c)) return c; } return null; };
+  const survRoster = roster.filter((q, i) => i !== ent), taken = [];
   for (let k = 0; k < survRoster.length; k++) {
-    const q = survRoster[k], c = near[Math.floor(rnd() * near.length)], p = cc(c);
+    let c = null; for (let gap = CONFIG.spawnSpread; c == null && gap >= 0; gap--) c = pick(x => taken.every(t => cdist(t, x) >= gap));
+    taken.push(c);
+  }
+  let far = null; for (let gap = CONFIG.spawnSafe; far == null && gap >= 0; gap--) far = pick(x => taken.every(t => cdist(t, x) >= gap));
+  const survivors = [];
+  for (let k = 0; k < survRoster.length; k++) {
+    const q = survRoster[k], c = taken[k], p = cc(c);
     const s = newAgent({ id: k, name: q.name, human: !!q.human, pid: q.pid || null, pos: { x: p.x + (rnd() - 0.5) * 1.6, z: p.z + (rnd() - 0.5) * 1.6 }, yaw: rnd() * 6.28 });
     s.think = rnd() * 2; survivors.push(s);
   }
@@ -180,8 +188,11 @@ function doAction(a, act) {
 export function ventSideOK(a, v) {
   return (a.pos.x - v.px) * v.nx + (a.pos.z - v.pz) * v.nz > 0.05 && los(a.pos.x, a.pos.z, v.front.x, v.front.z);
 }
-/** final stretch of the round: each vent visit only lasts CONFIG.lateVentTime seconds */
+/** final stretch of the round: the vent meter shrinks to CONFIG.lateVentTime seconds */
 export const lateRound = () => G.timeLeft <= CONFIG.redTime;
+/** vent meter thresholds right now (warning, smilers appear, death), scaled down in the final 30 s */
+export function ventLimits() { const k = lateRound() ? CONFIG.lateVentTime / CONFIG.ventDeath : 1;
+  return { k, warn: CONFIG.ventWarn * k, smilers: CONFIG.ventSmilers * k, death: CONFIG.ventDeath * k }; }
 export const canHide = s => true;   // vents stay open; only the stay is capped late in the round
 export function usableVent(a) {
   const fx = -Math.sin(a.yaw), fz = -Math.cos(a.yaw); let best = null, bd = 1e9;
@@ -262,7 +273,8 @@ function updateBotSurvivor(s, dt) {
   if (s.inVent) {   // hiding: leave before the smilers come, or once things are quiet
     s.hideT = (s.hideT || 0) + dt; const near = !m.frozen && dm < 12;
     if (near) s.calmT = 0; else s.calmT = (s.calmT || 0) + dt;
-    if (s.sanity >= CONFIG.ventWarn - 2 - (s.id % 3) * 0.7 || (s.hideT > 5 && s.calmT > 4)) { exitVent(s); s.botVentCD = 15; s.hideT = 0; s.state = near ? 'flee' : 'wander'; s.think = 0; }
+    const L = ventLimits();
+    if (s.sanity >= L.warn - (2 + (s.id % 3) * 0.7) * L.k || (s.hideT > 5 && s.calmT > 4)) { exitVent(s); s.botVentCD = 15; s.hideT = 0; s.state = near ? 'flee' : 'wander'; s.think = 0; }
     return;
   }
   const sightR = (isDark(s.pos) || isDark(m.pos)) ? CONFIG.darkVision : 16;
@@ -478,7 +490,6 @@ function catchSurvivor(s, cause) {
    VENTS + SANITY (smilers)
    ===================================================================== */
 function enterVent(s, vent) {
-  s.lateVent = CONFIG.lateVentTime;   // every visit gets a fresh timer
   s.inVent = vent; vent.occupant = s; s.mode = 'idle'; s.moving = false;
   s.pos = { ...vent.front }; s.yaw = vent.yawOut; s.pitch = -0.05;
   emit({ t: 'ventIn', id: s.id, v: vent.id });
@@ -507,19 +518,16 @@ function updateVentRips(dt) {
   }
 }
 function updateSanity(dt) {
+  if (lateRound() && !G.lateScaled) {   // lights turn red: the vent meter shrinks to 5 s; everyone keeps the same fraction filled
+    G.lateScaled = true; const k = ventLimits().k; for (const s of G.survivors) s.sanity *= k; }
   for (const s of G.survivors) {
     s.ventCD = Math.max(0, (s.ventCD || 0) - dt);
     if (s.inVent) s.sanity += dt; else s.sanity = Math.max(0, s.sanity - dt * CONFIG.sanityRecover);
-    if (s.lateVent == null) s.lateVent = CONFIG.lateVentTime;
-    if (s.alive && s.inVent && lateRound() && s.jumpT == null) {
-      s.lateVent = Math.max(0, s.lateVent - dt);
-      if (s.lateVent <= 0) { const v = s.inVent; exitVent(s); s.ventCD = 2; emit({ t: 'ventKick', id: s.id, v: v.id });
-        if (!s.human) { s.state = 'wander'; s.think = 0; } continue; }
-    }
     if (!s.alive || !s.inVent) continue;
-    if (!s.human) { if (s.sanity >= CONFIG.ventDeath) catchSurvivor(s, 'smilers'); continue; }
+    const L = ventLimits();
+    if (!s.human) { if (s.sanity >= L.death) catchSurvivor(s, 'smilers'); continue; }
     // a real player gets the smiler jumpscare first, then dies
-    if (s.jumpT == null && s.sanity >= CONFIG.ventDeath) { s.jumpT = 0; emit({ t: 'smilers', id: s.id }); }
+    if (s.jumpT == null && s.sanity >= L.death) { s.jumpT = 0; emit({ t: 'smilers', id: s.id }); }
     else if (s.jumpT != null) { s.jumpT += dt; if (s.jumpT > 1.15) catchSurvivor(s, 'smilers'); }
   }
 }

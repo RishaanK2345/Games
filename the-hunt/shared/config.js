@@ -57,7 +57,7 @@ export const CONFIG = {
   corruptTime: 120,
   redTime: 30,             // last N seconds: every light turns red
   lateStepLoud: 1.8,       // ...survivor footsteps this much louder (and heard 1.5x farther)
-  lateVentTime: 5,         // ...and in those last N seconds a vent only holds you this long per visit
+  lateVentTime: 5,         // ...and in those last N seconds the vent meter is only this long (smilers at 5 s)
   blackoutMin: 25,         // seconds between regional blackouts (random in range)
   blackoutMax: 45,
   blackoutRadius: 2.5,     // in cells (~10 m across)
@@ -75,6 +75,8 @@ export const CONFIG = {
   ventWarn: 15,            // seconds in a vent: first insanity warning
   ventSmilers: 20,         // smilers start showing
   ventDeath: 25,           // smilers get you
+  spawnSpread: 3,          // survivors spawn at least this many cells apart
+  spawnSafe: 4,            // ...and the Entity at least this many cells from every survivor
   sanityRecover: 1,        // sanity time drained per second once you're out
 };
 
