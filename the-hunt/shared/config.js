@@ -46,7 +46,7 @@ export const CONFIG = {
   leanEntity: 0.6,
   entityCrouchSpeed: 0.55, // Entity speed multiplier while crouched
   ventDensity: 0.025,      // vents per cell (16x16 map = ~6 vents)
-  ripCooldown: 20,         // Entity: rip a vent open (E)
+  ripCooldown: 17,         // Entity: rip a vent open (E)
   ripRoot: 1.0,            // Entity is stuck in place while ripping
   ripEjectDelay: 0.45,     // hider gets thrown out this long after the rip starts
   ripAttackLock: 1.4,      // Entity can't bite/swipe this long after ripping (head start for the hider)

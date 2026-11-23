@@ -924,7 +924,7 @@ function showOnlineLobby(){
 function viewTime(){ if(!G||!G.net||G.snapAt==null) return 0; return G.snapEl+(performance.now()-G.snapAt)/1000-1/14; }
 function netUpdate(dt){
   const p=G.player; G.sendT-=dt; if(G.sendT<=0){ G.sendT=0.05; G.net.room.send('input',p.input); }
-  G.elapsed+=dt; G.timeLeft-=dt; for(const b of G.blackouts) b.t+=dt;
+  G.elapsed+=dt; G.timeLeft-=dt; for(const b of G.blackouts) b.t+=dt; if(G.allDarkT>0) G.allDarkT=Math.max(0,G.allDarkT-dt);
   const k=1-Math.exp(-14*dt);
   for(const a of [G.monster,...G.survivors]){ if(a===p||!a.net) continue; const n=a.net;
     if(Math.hypot(n.x-a.pos.x,n.z-a.pos.z)>4){ a.pos.x=n.x; a.pos.z=n.z; } else { a.pos.x+=(n.x-a.pos.x)*k; a.pos.z+=(n.z-a.pos.z)*k; }
@@ -942,7 +942,7 @@ function applySnapshot(S){
   for(const k of ['revealT','burstT','burstCD','mimicCD','biteCD','swipeCD','ripCD','ripT','cooldown','atkLock','pounceT']) m[k]=M[k];
   m.frozen=!!M.frozen; m.ability=M.ability; m.seen=M.seen; m.state=M.state; if(M.look!=null) m.look=M.look;
   if(m!==p){ m.net={x:M.x,z:M.z,yaw:M.yaw}; m.pitch=M.pitch; m.mode=M.mode; m.moving=!!M.moving; m.crouching=!!M.crouching; m.lean=M.lean||0; m.leanOff=M.leanOff||0; }
-  G.blackouts=S.b.map(([x,z,r,t,dur])=>({x,z,r,t,dur}));
+  G.blackouts=S.b.map(([x,z,r,t,dur])=>({x,z,r,t,dur})); G.allDarkT=S.ad||0;
 }
 
 /* =====================================================================
@@ -1253,12 +1253,36 @@ function handleEvent(e){
     case 'shift': {   // WRONG WAY: walls sink and rise; collision follows the server's map right away
       for(const [k,x,y,on] of e.ch){ G.map[k][y][x]=!!on; const s=G.wallSlots[k+x+','+y]; if(s){ s.to=on?1:0; (G.wallAnim||(G.wallAnim=new Set())).add(s); } }
       setWorld(G.map); G.boxes=BOXES; SFX.rumble(); G.shake=1.4; G.shiftFlick=1.2; break; }
+    case 'surge': SFX.powerDown(null,null,true); G.allDarkT=G.allDarkT||CONFIG.surgeDark; break;
     case 'ventKick': if(me(a)){ showMsg('THE VENT SPITS YOU OUT',2); G.flash=Math.max(G.flash,0.25); } break;
     case 'smilers': if(me(a)&&!G.jump){ G.jump={t:0,s:a}; SFX.scream(); } break;
     case 'caught': onCaught(e); break;
     case 'power': SFX.powerDown(e.x,e.z,false,!!e.back); break;
     case 'left': feed(`${esc(e.name)} disconnected · a bot took over`); if(a){ a.human=false; } break;
     case 'end': endRound(e.winner,e.time); break;
+  }
+}
+/* ---------- PHANTOMS: sounds with nobody there (each player hears their own) ----------
+   footsteps walking or running past you, a vent being used, an attack in the dark */
+function updatePhantoms(dt){
+  const p=G.player; if(!p.alive||G.over) return;
+  if(G.phantomT==null) G.phantomT=CONFIG.freezeTime+6+Math.random()*8;
+  G.phantomT-=dt; if(G.phantomT>0) return;
+  G.phantomT=9+Math.random()*13;
+  const kinds=p.isMonster?['walk','run','run','vent']:['walk','run','vent','attack','walk','run'];
+  const kind=kinds[Math.floor(Math.random()*kinds.length)], ang=Math.random()*Math.PI*2, g0=G;
+  if(kind==='walk'||kind==='run'){
+    // a path that passes right by you: starts behind/beside, crosses close, fades away
+    const run=kind==='run', n=run?9:7, gap=run?0.3:0.5, d0=run?6:4, side=(Math.random()<0.5?-1:1)*(0.8+Math.random()*1.2);
+    const fx=Math.cos(ang), fz=Math.sin(ang), sx=-fz*side, sz=fx*side, cx=p.pos.x, cz=p.pos.z;
+    for(let i=0;i<n;i++){ const k=i/(n-1), x=cx+fx*(-d0+2*d0*k)+sx, z=cz+fz*(-d0+2*d0*k)+sz;
+      setTimeout(()=>{ if(G!==g0||G.over) return; if(isWet({x,z})) SFX.squelch(x,z,run?0.38:0.3,false); else SFX.step(x,z,run?0.34:0.24,false,false); },i*gap*1000); }
+  } else if(kind==='vent'){
+    const v=G.vents.slice().sort((a,b)=>Math.hypot(a.face.x-p.pos.x,a.face.z-p.pos.z)-Math.hypot(b.face.x-p.pos.x,b.face.z-p.pos.z))[Math.floor(Math.random()*2)];
+    if(v&&Math.hypot(v.face.x-p.pos.x,v.face.z-p.pos.z)<22) SFX.clank(v.face.x,v.face.z); else G.phantomT=2;
+  } else {
+    const r=3+Math.random()*4, x=p.pos.x+Math.cos(ang)*r, z=p.pos.z+Math.sin(ang)*r;
+    if(Math.random()<0.5) SFX.bite(x,z); else SFX.swipe(x,z);
   }
 }
 function drainEvents(){ if(!G) return; const evs=G.events.splice(0); for(const e of evs){ handleEvent(e); if(!G) return; } }
@@ -1331,6 +1355,7 @@ function updateLights(dt,cx,cz){
   let zapNear=0;
   lights.forEach((L,k)=>{
     if(L.state==='dead'){ L.level=0; return; }
+    if(G.allDarkT>0){ L.level=0; tmpCol.copy(_tint).multiplyScalar(0.02); G.panels.setColorAt(k,tmpCol); return; }   // power surge: everything out
     const dm=Math.hypot(L.x-m.pos.x,L.z-m.pos.z), bo=blackoutAt(L.x,L.z);
     if(bo){ L.level=bo.t<1.4?(Math.random()<0.3+bo.t*0.45?0.03:0.5+Math.random()*0.5):bo.t<bo.dur?0:(Math.random()<0.55?1:0.08); }   // warning flicker, out, flicker back
     else if(awake&&!m.disguised&&!(m.revealT>0)&&dm<R){                      // the Entity is close: lights go haywire, darker the closer it is
@@ -1430,7 +1455,7 @@ function update(dt){
   if(G.attackReq){ pushAction({a:'attack',type:G.attackReq,el:viewTime()}); G.attackReq=null; }
   if(G.net) netUpdate(dt); else step(G,dt);   // offline: run the round here. online: the server runs it
   drainEvents(); if(!G) return;
-  updateSanity(dt);
+  updateSanity(dt); if(CONFIG.phantoms) updatePhantoms(dt);
   // "you've been spotted" sting (a disguised Entity gives no warning)
   G.stingCD-=dt; const seenMe=!p.isMonster&&p.alive&&!m.disguised&&!!(m.seen&&m.seen.includes(p.id));
   if(seenMe&&!G.alerted&&G.stingCD<=0){ SFX.sting(); G.stingCD=8; } G.alerted=seenMe;
@@ -1728,6 +1753,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   updateLights:{get:()=>updateLights,configurable:true},
   updateLookUI:{get:()=>updateLookUI,configurable:true},
   updateMotes:{get:()=>updateMotes,configurable:true},
+  updatePhantoms:{get:()=>updatePhantoms,configurable:true},
   updatePlayer:{get:()=>updatePlayer,configurable:true},
   updateSanity:{get:()=>updateSanity,configurable:true},
   updateViewer:{get:()=>updateViewer,configurable:true},

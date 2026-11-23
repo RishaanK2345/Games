@@ -138,6 +138,9 @@ export function step(W, dt) {
   if (W.lagComp) recordHistory(W);
   // win check
   const alive = W.survivors.filter(s => s.alive).length;
+  // BLACKOUT SHIFT: when the last 30 s start, every light on the map dies for a few seconds
+  if (CONFIG.surgeDark && lateRound() && !W.surged) { W.surged = true; W.allDarkT = CONFIG.surgeDark; emit({ t: 'surge' }); }
+  if (W.allDarkT > 0) W.allDarkT = Math.max(0, W.allDarkT - dt);
   if (CONFIG.wallShifts) for (let i = 0; i < CONFIG.shiftTimes.length; i++) { W.shifted = W.shifted || [];
     if (!W.shifted[i] && W.timeLeft <= CONFIG.shiftTimes[i] && CONFIG.shiftTimes[i] < CONFIG.roundTime) { W.shifted[i] = true; wallShift(i + 1); } }
   if (alive === 0 && W.survivors.length) endRound('monster'); else if (W.timeLeft <= 0) endRound('survivors');
@@ -260,7 +263,8 @@ function pathToPoint(a, pt) {
   const path = pathFrom(MAP, res, sx, sy, tx + ty * MAP.N); path.push({ x: pt.x, z: pt.z }); return path;
 }
 export function blackoutAt(x, z) { for (const b of G.blackouts) if (Math.hypot(x - b.x, z - b.z) < b.r) return b; return null; }
-export function isDark(p) { const b = blackoutAt(p.x, p.z); return !!(b && b.t >= 1.4 && b.t < b.dur); }   // fully out (after the warning flicker)
+export function isDark(p) { if (G && G.allDarkT > 0) return true;   // BLACKOUT SHIFT power surge: every light is out
+  const b = blackoutAt(p.x, p.z); return !!(b && b.t >= 1.4 && b.t < b.dur); }   // fully out (after the warning flicker)
 
 /* =====================================================================
    BOT SURVIVOR AI  (fills empty slots)
@@ -586,7 +590,7 @@ export function snapshot(W) {
     m: { x: r2(m.pos.x), z: r2(m.pos.z), yaw: r2(m.yaw), pitch: r2(m.pitch), lean: r2(m.lean || 0), leanOff: r2(m.leanOff || 0), mode: m.mode, moving: m.moving ? 1 : 0, crouching: m.crouching ? 1 : 0, state: m.state,
       disguised: m.disguised ? 1 : 0, look: m.look, revealT: r2(m.revealT), burstT: r2(m.burstT), burstCD: r2(m.burstCD), mimicCD: r2(m.mimicCD), biteCD: r2(m.biteCD),
       swipeCD: r2(m.swipeCD), pounceT: r2(m.pounceT || 0), ripCD: r2(m.ripCD), ripT: r2(m.ripT), cooldown: r2(m.cooldown), atkLock: r2(m.atkLock), frozen: m.frozen ? 1 : 0, ability: m.ability, seen: m.seen },
-    b: W.blackouts.map(b => [r2(b.x), r2(b.z), r2(b.r), r2(b.t), r2(b.dur)]),
+    b: W.blackouts.map(b => [r2(b.x), r2(b.z), r2(b.r), r2(b.t), r2(b.dur)]), ad: r2(W.allDarkT || 0),
   };
 }
 
