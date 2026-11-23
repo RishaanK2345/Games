@@ -19,7 +19,7 @@ export class GameRoom extends Room {
     ACTIVE.set(code, this); this.code = code;
     this.phase = 'lobby';
     this.humans = [];         // [{sid, name, ready, host}] in join order
-    this.settings = { size: [12, 16, 20].includes(+o.size) ? +o.size : 16, anomalies: o.anomalies !== false, bots: true, entity: 'random' };
+    this.settings = { size: [16, 20].includes(+o.size) ? +o.size : 16, anomalies: o.anomalies !== false, bots: true, entity: 'random' };
     this.countdown = -1; this.W = null; this.snapT = 0; this.round = 0; this.lastEntity = null;
 
     const host = c => this.humans.find(h => h.sid === c.sessionId && h.host);

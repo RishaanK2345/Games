@@ -1,6 +1,6 @@
 // Bot-vs-bot balance check, no browser needed.
 //   npm run balance            -> 20 rounds on a medium map
-//   npm run balance -- 50 20   -> 50 rounds on a large map (sizes: 12, 16, 20)
+//   npm run balance -- 50 20   -> 50 rounds on a large map (sizes: 16, 20)
 // Edit shared/config.js, run this again, compare the win rates.
 import { createRound, step, pickEntity } from '../shared/sim.js';
 

@@ -1005,7 +1005,7 @@ function lobbyTick(dt){
 }
 function renderLobby(){
   const L=LOBBY; if(!L) return;
-  { const sz=L.online?L.size:SET.size; $('lbInfo').innerHTML=`${({12:'Small',16:'Medium',20:'Large'})[sz]} map · ${fmt(ROUND_TIME[sz])}<br>Anomalies: ${L.anomalies?'random':'off'}`+(L.online?'<br>Online room':''); }
+  { const sz=L.online?L.size:SET.size; $('lbInfo').innerHTML=`${({16:'Medium',20:'Large'})[sz]||'Medium'} map · ${fmt(ROUND_TIME[sz])}<br>Anomalies: ${L.anomalies?'random':'off'}`+(L.online?'<br>Online room':''); }
   $('botsOn').classList.toggle('on',L.bots); $('botsOff').classList.toggle('on',!L.bots);
   $('lbList').innerHTML=L.players.map((q,i)=>(!q.joined||(q.bot&&!L.bots))?`<div class="lbRow empty"><span class="slot">${i+1}</span><span class="n">${L.bots?'waiting for player…':'empty slot'}</span></div>`
     :`<div class="lbRow${q.ready?' ready':''}${q.you?' you':''}"><span class="slot">${i+1}</span><span class="n">${q.name.replace(/[<>&]/g,'')}</span>${i===L.entity?'<span class="tag ent">ENTITY</span>':''}${q.host?'<span class="tag">HOST</span>':''}${q.you?'<span class="tag">YOU</span>':q.bot?'<span class="tag">BOT</span>':''}<span class="st">${q.ready?'✓ READY':'not ready'}</span></div>`).join('');
