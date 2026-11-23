@@ -74,3 +74,5 @@
   .warn{margin-top:14px;padding:9px 11px;border:1px solid rgba(243,201,107,.45);background:rgba(243,201,107,.07);color:#f3c96b;font-size:11px;line-height:1.5}
   .warn b{letter-spacing:1px}
   .credit{position:fixed;left:14px;bottom:10px;font-size:11px;letter-spacing:1px;color:#e8dca0;opacity:.45;pointer-events:none}
+  .clickPrompt{position:fixed;left:50%;top:58%;transform:translateX(-50%);padding:10px 18px;border:1px solid rgba(232,220,160,.5);background:rgba(0,0,0,.55);color:#e8dca0;font-family:VT323,monospace;font-size:24px;letter-spacing:3px;pointer-events:none;z-index:20;animation:cp 1.6s ease-in-out infinite}
+  @keyframes cp{50%{opacity:.55}}

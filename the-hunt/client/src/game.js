@@ -805,21 +805,40 @@ function beginRound(opts,myPid,net){
 /* =====================================================================
    INPUT
    ===================================================================== */
-function lockPointer(){
-  if(noLock) return;
-  try{ const r=canvas.requestPointerLock(); if(r&&r.catch) r.catch(()=>{ noLock=true; }); }catch(e){ noLock=true; }
+// Browsers only lock the mouse right after a click. A round that starts from the lobby
+// countdown can't lock it, so we show "click to look around" instead of giving up.
+// Only if a lock fails AFTER a real click (e.g. inside an embedded page that forbids it)
+// do we switch to free-look: hidden cursor, mouse turns you, edges keep turning.
+let lockByClick=false, mouseX=0.5, mouseIn=false;
+function lockPointer(byClick){
+  if(noLock||locked) return;
+  lockByClick=!!byClick;
+  try{ const r=canvas.requestPointerLock(); if(r&&r.catch) r.catch(()=>{ if(lockByClick) noLock=true; }); }catch(e){ if(lockByClick) noLock=true; }
 }
 document.addEventListener('pointerlockchange',()=>{ locked=document.pointerLockElement===canvas; if(!locked&&G&&!G.over&&!G.menuOpen) pauseGame(); });
-document.addEventListener('pointerlockerror',()=>{ noLock=true; });
+document.addEventListener('pointerlockerror',()=>{ if(lockByClick) noLock=true; });
 document.addEventListener('mousemove',e=>{
-  if(!G||G.over||G.paused) return;
-  if(!(locked||(noLock&&dragging))) return;
+  mouseX=e.clientX/Math.max(1,innerWidth); mouseIn=true;
+  if(!G||G.over||G.paused||G.menuOpen) return;
+  if(!(locked||noLock)) return;
   const p=G.player, k=0.0022*PREF.sens; p.yaw-=e.movementX*k; p.pitch=clamp(p.pitch-e.movementY*k*(PREF.invert?-1:1),-1.35,1.35);
 });
+document.addEventListener('mouseleave',()=>{ mouseIn=false; });
+/** free-look fallback: holding the cursor near the left/right edge keeps turning you */
+function edgeTurn(dt){
+  if(!noLock||!mouseIn||!G||G.over||G.paused||G.menuOpen) return;
+  const E=0.08, d=mouseX<E?(E-mouseX)/E:mouseX>1-E?-(mouseX-(1-E))/E:0;
+  if(d) G.player.yaw+=d*2.4*PREF.sens*dt;
+}
+function updateLookUI(){
+  const inRound=!!(G&&!G.over&&!G.menuOpen);
+  $('clickPrompt').classList.toggle('hidden',!(inRound&&!locked&&!noLock));
+  canvas.style.cursor=inRound&&(locked||noLock)?'none':'';
+}
 canvas.addEventListener('mousedown',e=>{
   if(VIEW){ dragging=true; return; }
   if(!G||G.over) return;
-  if(!locked&&!noLock){ lockPointer(); return; }
+  if(!locked&&!noLock){ lockPointer(true); return; }
   dragging=true;
   if(G.player.isMonster) G.attackReq=e.button===2?'swipe':'bite'; else if(!G.player.alive) cycleSpectate();
 });
@@ -930,7 +949,7 @@ const PANELS=['menu','pause','settingsPanel','controlsPanel','lobby'];
 function openPanel(id,from){ panelReturn=from; PANELS.forEach(x=>$(x).classList.add('hidden')); $(id).classList.remove('hidden'); syncSettingsUI(); }
 document.querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>openPanel(b.dataset.open,b.closest('#pause')?'pause':'menu')));
 document.querySelectorAll('.back').forEach(b=>b.addEventListener('click',()=>{ $('settingsPanel').classList.add('hidden'); $('controlsPanel').classList.add('hidden'); $(panelReturn).classList.remove('hidden'); }));
-function resumeGame(){ if(!G) return; if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); PANELS.forEach(x=>$(x).classList.add('hidden')); G.menuOpen=false; G.paused=false; SFX.init(); lockPointer(); }
+function resumeGame(){ if(!G) return; if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); PANELS.forEach(x=>$(x).classList.add('hidden')); G.menuOpen=false; G.paused=false; SFX.init(); lockPointer(true); }
 function pauseGame(){ if(!G||G.over) return; G.menuOpen=true; for(const k in keys) keys[k]=false; G.attackReq=null; $('pause').classList.remove('hidden'); }   // the round keeps running, like online
 function leaveGame(keepRoom){
   if(document.pointerLockElement) document.exitPointerLock();
@@ -1346,11 +1365,12 @@ canvas.addEventListener('wheel',e=>{ if(!VIEW) return; e.preventDefault(); VIEW.
 let last=performance.now(); const FPS={n:0,t:0,last:performance.now()};
 function frame(now){
   requestAnimationFrame(frame);
+  updateLookUI();
   const dt=Math.min(0.05,(now-last)/1000); last=now;
   if(PREF.fps){ FPS.n++; FPS.t+=(now-FPS.last)/1000; FPS.last=now; if(FPS.t>=0.5){ $('fps').textContent=Math.round(FPS.n/FPS.t)+' fps'; FPS.n=0; FPS.t=0; } } else FPS.last=now;
   if(VIEW){ updateViewer(dt); renderFrame(VIEW.scene,dt,0); return; }
   if(!G){ renderer.clear(); return; }
-  if(!G.paused&&!G.over) update(dt);
+  if(!G.paused&&!G.over){ edgeTurn(dt); update(dt); }
   if(!G.paused) draw(dt);
   renderFrame(G.scene,dt,G.fear||0,G.insane||0);
 }
