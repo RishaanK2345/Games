@@ -62,7 +62,16 @@ export const CONFIG = {
   blackoutMax: 45,
   blackoutRadius: 2.5,     // in cells (~10 m across)
   blackoutDur: [8,12],     // seconds the region stays dark
-  darkVision: 6,           // how far anyone (bots included) can see inside a blackout        // seconds for a body to be fully overrun by parasites
+  darkVision: 6,           // how far survivors (and bots) can see inside a blackout
+  entityDarkVision: 9,     // the Entity sees a bit farther in the dark
+  entityRedVision: 1.12,   // ...and a little farther once the lights turn red
+  pushRange: 1.4,          // [F] survivor shove: reach
+  pushCooldown: 8,         //   seconds between shoves
+  pushDown: 1.0,           //   the shoved survivor is on the floor this long
+  pushDist: 0.7,           //   and knocked back this far
+  pounceRange: 2.2,        // Mimic: attacking while disguised = instant unveil + bite with this reach
+  pounceTime: 1.5,         // any unveil gives a burst this long...
+  pounceSpeed: 6.4,        // ...at this speed (faster than a sprinting survivor)
   ventWarn: 15,            // seconds in a vent: first insanity warning
   ventSmilers: 20,         // smilers start showing
   ventDeath: 25,           // smilers get you

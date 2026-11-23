@@ -110,6 +110,8 @@ export function step(W, dt) {
   W.elapsed += dt; W.timeLeft -= dt;
   const m = W.monster; const wasFrozen = m.frozen; m.frozen = W.elapsed < CONFIG.freezeTime;
   if (wasFrozen && !m.frozen) emit({ t: 'unfreeze', ab: m.ability });
+  m.pounceT = Math.max(0, (m.pounceT || 0) - dt);
+  for (const s of W.survivors) { s.downT = Math.max(0, (s.downT || 0) - dt); s.pushCD = Math.max(0, (s.pushCD || 0) - dt); }
   updateMimic(m, dt); m.cooldown = Math.max(0, m.cooldown - dt); m.biteCD = Math.max(0, m.biteCD - dt); m.ripCD = Math.max(0, m.ripCD - dt); m.ripT = Math.max(0, m.ripT - dt);
   m.atkLock = Math.max(0, m.atkLock - dt); m.swipeCD = Math.max(0, m.swipeCD - dt); updateBurst(m, dt);
   // real players: apply what they sent (movement is checked, not trusted)
@@ -140,7 +142,7 @@ export function updateStamina(s, dt) {
 function applyHuman(a, inp, dt) {
   if (!a.alive) return;
   a.yaw = +inp.yaw || 0; a.pitch = clamp(+inp.pitch || 0, -1.35, 1.35); a.lean = clamp(+inp.lean || 0, -1, 1); a.leanOff = clamp(+inp.leanOff || 0, -(a.isMonster ? CONFIG.leanEntity : CONFIG.leanSurvivor), a.isMonster ? CONFIG.leanEntity : CONFIG.leanSurvivor);
-  const stuck = a.inVent || a.jumpT != null || (a.isMonster && (a.frozen || a.ripT > 0));
+  const stuck = a.inVent || a.jumpT != null || a.downT > 0 || (a.isMonster && (a.frozen || a.ripT > 0));
   if (stuck) { a.moving = false; a.mode = 'idle'; a.crouching = false; a.budget = 0; if (!a.isMonster) updateStamina(a, dt); return; }
   a.crouching = !!inp.crouch;
   let speed, mode = inp.moving ? inp.mode : 'idle';
@@ -166,6 +168,7 @@ function doAction(a, act) {
   if (act.a === 'use') useAction(a);
   else if (a.isMonster && act.a === 'attack' && (act.type === 'bite' || act.type === 'swipe')) entityAttack(a, act.type, act.el);
   else if (a.isMonster && act.a === 'ability') useAbility(a);
+  else if (!a.isMonster && act.a === 'push') shove(a);
   else if (a.isMonster && act.a === 'pick' && a.frozen && (act.ab === 'dash' || act.ab === 'mimic')) { a.ability = act.ab; emit({ t: 'ability', ab: act.ab }); }
 }
 /** the vent this agent can use right now (same rules as the on-screen prompt) */
@@ -251,6 +254,7 @@ function nearbyHideVent(s) {
 function updateBotSurvivor(s, dt) {
   const m = G.monster, dm = dist2(s.pos, m.pos);
   s.botVentCD = Math.max(0, (s.botVentCD || 0) - dt);
+  if (s.downT > 0) { s.moving = false; s.mode = 'idle'; s.path = []; s.think = 0; updateStamina(s, dt); return; }   // shoved over
   if (s.inVent) {   // hiding: leave before the smilers come, or once things are quiet
     s.hideT = (s.hideT || 0) + dt; const near = !m.frozen && dm < 12;
     if (near) s.calmT = 0; else s.calmT = (s.calmT || 0) + dt;
@@ -301,7 +305,8 @@ export function canSee(m, s) {
   const pts = [s.pos];   // AI ignores a peeking head; leaning is still drawn so real players can spot it
   const cosFov = Math.cos(CONFIG.visionFov * Math.PI / 360);
   const fx = -Math.sin(m.yaw), fz = -Math.cos(m.yaw); let range = CONFIG.visionRange * (s.mode === 'crouch' || s.mode === 'idle' ? 0.55 : 1);
-  if (isDark(m.pos) || isDark(s.pos)) range = Math.min(range, CONFIG.darkVision);   // blackout: nobody sees far
+  if (lateRound()) range *= CONFIG.entityRedVision;                                  // red lights: sees a little farther
+  if (isDark(m.pos) || isDark(s.pos)) range = Math.min(range, CONFIG.entityDarkVision);   // blackout: short sight (but better than survivors')
   for (const q of pts) { const dd = Math.hypot(q.x - m.pos.x, q.z - m.pos.z);
     if (dd > range) continue;
     if (((q.x - m.pos.x) * fx + (q.z - m.pos.z) * fz) / dd >= cosFov && los(m.pos.x, m.pos.z, q.x, q.z)) return true; }
@@ -332,7 +337,7 @@ function updateMonsterBot(m, dt) {
   if (m.ripT > 0) { m.moving = false; return; }
   if (m.ability === 'mimic') {   // disguise while hunting; unveil when close to a survivor it can see
     if (!m.disguised && m.mimicCD <= 0 && m.revealT <= 0 && !m.sees) toggleMimic(m);
-    else if (m.disguised && m.sees && m.target && dist2(m.pos, m.target.pos) < 2.4) toggleMimic(m); }
+  }
   if (m.ventWatch && (m.ventWatch.broken || m.sees)) { m.ventWatch = null; m.watchT = 0; }
   let speed = entitySpeed(m); let moved = false; m.crouching = false;
   if (m.state === 'chase' && m.sees && m.target && m.target.alive) {
@@ -355,13 +360,13 @@ function updateMonsterBot(m, dt) {
       m.goal = null; m.path = []; if (m.state !== 'patrol') { m.state = 'patrol'; m.yaw += Math.PI * 0.6; } }
   }
   m.moving = moved;
-  if (m.biteCD <= 0 && attackTarget(m, 'bite')) entityAttack(m, 'bite'); else if (m.swipeCD <= 0 && attackTarget(m, 'swipe')) entityAttack(m, 'swipe');
+  if (m.biteCD <= 0 && attackTarget(m, 'bite')) entityAttack(m, 'bite'); else if (!m.disguised && m.swipeCD <= 0 && attackTarget(m, 'swipe')) entityAttack(m, 'swipe');
 }
 
 /* =====================================================================
    ENTITY ABILITIES: dash or mimic, and the two attacks
    ===================================================================== */
-export function entitySpeed(m) { if (m.ripT > 0) return 0; if (m.disguised) return m.crouching ? CONFIG.crouchSpeed / CONFIG.entityCrouchSpeed : CONFIG.mimicSpeed;
+export function entitySpeed(m) { if (m.ripT > 0) return 0; if (m.pounceT > 0 && !m.disguised) return CONFIG.pounceSpeed; if (m.disguised) return m.crouching ? CONFIG.crouchSpeed / CONFIG.entityCrouchSpeed : CONFIG.mimicSpeed;
   return (m.burstT > 0 ? CONFIG.entityBurstSpeed : CONFIG.monsterSpeed) * (m.cooldown > 0 ? 0.45 : 1) * (inTerror(m) ? CONFIG.terrorBoost : 1); }
 /** a survivor is within the Entity's terror radius (where they get the heartbeat + red); not while it's disguised */
 export function inTerror(m) { if (m.disguised || m.revealT > 0 || !G) return false;
@@ -379,7 +384,7 @@ function endBurst(m) { if (m.burstT > 0) { m.burstT = 0; m.burstCD = CONFIG.enti
 function useAbility(m) { if (m.ability === 'mimic') toggleMimic(m); else entityBurst(m); }
 function toggleMimic(m) {
   if (m.frozen || m.ripT > 0) return false;
-  if (m.disguised) { m.disguised = false; m.revealT = CONFIG.revealTime; m.mimicCD = CONFIG.mimicCooldown; emit({ t: 'reveal' }); return true; }
+  if (m.disguised) { m.disguised = false; m.revealT = CONFIG.revealTime; m.mimicCD = CONFIG.mimicCooldown; m.pounceT = CONFIG.pounceTime; emit({ t: 'reveal' }); return true; }
   if (m.mimicCD > 0 || m.revealT > 0) return false;
   // borrow the look of a living survivor (their armband color)
   const alive = G.survivors.filter(s => s.alive); const who = alive.length ? alive[Math.floor(G.evRng() * alive.length)] : (G.survivors[0] || { id: Math.floor(G.evRng() * 5) });
@@ -387,7 +392,7 @@ function toggleMimic(m) {
 }
 function updateMimic(m, dt) { if (m.revealT > 0) m.revealT = Math.max(0, m.revealT - dt); if (!m.disguised && m.revealT <= 0) m.mimicCD = Math.max(0, m.mimicCD - dt); }
 function attackTarget(m, type) {
-  const range = type === 'bite' ? CONFIG.biteRange : CONFIG.swipeRange, arc = type === 'bite' ? 0.45 : 0.0;   // swipe: a little more forgiving to the sides
+  const range = type === 'bite' ? (m.disguised ? CONFIG.pounceRange : CONFIG.biteRange) : CONFIG.swipeRange, arc = type === 'bite' ? 0.45 : 0.0;   // swipe: a little more forgiving to the sides
   const fx = -Math.sin(m.yaw), fz = -Math.cos(m.yaw); let best = null, bd = 1e9;
   for (const s of G.survivors) { if (!s.alive || s.inVent) continue; const d = dist2(m.pos, s.pos); if (d > range) continue;
     const dot = ((s.pos.x - m.pos.x) * fx + (s.pos.z - m.pos.z) * fz) / Math.max(d, 0.01); if (dot < arc && d > 0.7) continue;
@@ -425,7 +430,14 @@ function withRewind(viewEl, fn) {
 }
 function entityAttack(m, type, viewEl) {
   if (m.frozen || G.over || m.atkLock > 0 || m.ripT > 0) return false;
-  if (m.disguised) { toggleMimic(m); return false; }   // attacking unveils you first
+  if (m.disguised) {   // POUNCE: unveil and bite in one move, with extra reach
+    if (m.biteCD > 0) return false;
+    const s = m.human ? withRewind(viewEl, () => attackTarget(m, 'bite')) : attackTarget(m, 'bite');   // reach = pounceRange while disguised
+    m.disguised = false; m.revealT = 0; m.mimicCD = CONFIG.mimicCooldown; m.pounceT = CONFIG.pounceTime; m.biteCD = CONFIG.biteCooldown;
+    m.atkSide = -(m.atkSide || 1); emit({ t: 'reveal', pounce: true }); emit({ t: 'attack', type: 'bite', side: m.atkSide });
+    if (s) { catchSurvivor(s); m.cooldown = CONFIG.catchRecover; m.pounceT = 0; }
+    return true;
+  }
   if (m.revealT > 0) return false;
   const key = type === 'bite' ? 'biteCD' : 'swipeCD'; if (m[key] > 0) return false;
   m[key] = type === 'bite' ? CONFIG.biteCooldown : CONFIG.swipeCooldown;           // cooldown applies on hit or miss
@@ -433,6 +445,21 @@ function entityAttack(m, type, viewEl) {
   emit({ t: 'attack', type, side: m.atkSide });
   const s = m.human ? withRewind(viewEl, () => attackTarget(m, type)) : attackTarget(m, type);
   if (s) { catchSurvivor(s); endBurst(m); m.cooldown = CONFIG.catchRecover; }
+  return true;
+}
+/** [F] a survivor shoves the survivor in front of them: they fall for a second (sacrifice your friends) */
+function shove(a) {
+  if (a.inVent || a.downT > 0 || a.pushCD > 0 || a.jumpT != null) return false;
+  const fx = -Math.sin(a.yaw), fz = -Math.cos(a.yaw); let best = null, bd = 1e9;
+  for (const s of G.survivors) { if (s === a || !s.alive || s.inVent) continue; const d = dist2(a.pos, s.pos); if (d > CONFIG.pushRange || d >= bd) continue;
+    if (d > 0.3 && ((s.pos.x - a.pos.x) * fx + (s.pos.z - a.pos.z) * fz) / d < 0.3) continue;
+    if (!los(a.pos.x, a.pos.z, s.pos.x, s.pos.z)) continue; best = s; bd = d; }
+  a.pushCD = CONFIG.pushCooldown;                       // whiffing still costs the cooldown
+  if (!best) { emit({ t: 'push', by: a.id, miss: true }); return false; }
+  const dx = best.pos.x - a.pos.x, dz = best.pos.z - a.pos.z, d = Math.hypot(dx, dz) || 1;
+  best.pos = { x: best.pos.x + dx / d * CONFIG.pushDist, z: best.pos.z + dz / d * CONFIG.pushDist }; collide(best.pos, best.radius);
+  best.downT = CONFIG.pushDown; best.moving = false; best.mode = 'idle'; best.path = [];
+  emit({ t: 'push', by: a.id, id: best.id, x: best.pos.x, z: best.pos.z });
   return true;
 }
 function catchSurvivor(s, cause) {
@@ -517,10 +544,10 @@ export function snapshot(W) {
   return {
     tl: r2(W.timeLeft), el: r2(W.elapsed),
     s: W.survivors.map(s => [s.id, r2(s.pos.x), r2(s.pos.z), r2(s.yaw), r2(s.pitch), s.mode, s.moving ? 1 : 0, s.crouching ? 1 : 0, r2(s.leanOff || 0), s.alive ? 1 : 0,
-      s.inVent ? s.inVent.id : -1, r2(s.stamina), s.exhausted ? 1 : 0, r2(s.sanity), r2(s.exhaustT || 0), r2(s.lean || 0), r2(s.lateVent == null ? CONFIG.lateVentTime : s.lateVent)]),
+      s.inVent ? s.inVent.id : -1, r2(s.stamina), s.exhausted ? 1 : 0, r2(s.sanity), r2(s.exhaustT || 0), r2(s.lean || 0), r2(s.lateVent == null ? CONFIG.lateVentTime : s.lateVent), r2(s.downT || 0), r2(s.pushCD || 0)]),
     m: { x: r2(m.pos.x), z: r2(m.pos.z), yaw: r2(m.yaw), pitch: r2(m.pitch), lean: r2(m.lean || 0), leanOff: r2(m.leanOff || 0), mode: m.mode, moving: m.moving ? 1 : 0, crouching: m.crouching ? 1 : 0, state: m.state,
       disguised: m.disguised ? 1 : 0, look: m.look, revealT: r2(m.revealT), burstT: r2(m.burstT), burstCD: r2(m.burstCD), mimicCD: r2(m.mimicCD), biteCD: r2(m.biteCD),
-      swipeCD: r2(m.swipeCD), ripCD: r2(m.ripCD), ripT: r2(m.ripT), cooldown: r2(m.cooldown), atkLock: r2(m.atkLock), frozen: m.frozen ? 1 : 0, ability: m.ability, seen: m.seen },
+      swipeCD: r2(m.swipeCD), pounceT: r2(m.pounceT || 0), ripCD: r2(m.ripCD), ripT: r2(m.ripT), cooldown: r2(m.cooldown), atkLock: r2(m.atkLock), frozen: m.frozen ? 1 : 0, ability: m.ability, seen: m.seen },
     b: W.blackouts.map(b => [r2(b.x), r2(b.z), r2(b.r), r2(b.t), r2(b.dur)]),
   };
 }

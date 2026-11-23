@@ -834,8 +834,9 @@ function edgeTurn(dt){
 function survivorControls(p){
   if(!p.alive) return '[←] [→] switch who you spectate';
   const late=lateRound(), lv=Math.ceil(p.lateVent==null?CONFIG.lateVentTime:p.lateVent);
-  if(p.inVent) return '[E] climb out   ·   [Hold 1] look behind'+(late?'   ·   kicked out in '+lv+'s':'');
-  return [p.exhausted?'[Shift] sprint '+Math.ceil(p.exhaustT||0)+'s':'[Shift] sprint','[C] crouch','[Space]+[A/D] lean','[Hold 1] look behind',late?'[E] vent ('+CONFIG.lateVentTime+'s max)':'[E] vent'].join('   ·   ');
+  if(p.inVent) return '[E] climb out  ·  [Hold 1] look back'+(late?'  ·  kicked out in '+lv+'s':'');
+  if(p.downT>0) return 'KNOCKED DOWN';
+  return [p.exhausted?'[Shift] sprint '+Math.ceil(p.exhaustT||0)+'s':'[Shift] sprint','[C] crouch',p.pushCD>0?'[F] shove '+Math.ceil(p.pushCD)+'s':'[F] shove','[Space+A/D] lean','[Hold 1] look back',late?'[E] vent ('+CONFIG.lateVentTime+'s max)':'[E] vent'].join('  ·  ');
 }
 function updateLookUI(){
   const inRound=!!(G&&!G.over&&!G.menuOpen);
@@ -851,7 +852,7 @@ canvas.addEventListener('mousedown',e=>{
 addEventListener('mouseup',()=>{ dragging=false; });
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 addEventListener('keydown',e=>{ if(G&&G.menuOpen&&!G.over){ if(e.code==='Escape'&&noLock) resumeGame(); return; }   // menu open: no game input
-  keys[e.code]=true; if(G&&!G.paused&&!G.player.alive&&!G.player.isMonster&&(e.code==='ArrowRight'||e.code==='ArrowLeft')){ e.preventDefault(); cycleSpectate(e.code==='ArrowRight'?1:-1); } if(e.code==='Space'&&G&&!G.paused) e.preventDefault(); if((e.code==='ShiftLeft'||e.code==='ShiftRight')&&!e.repeat&&G&&!G.over&&!G.paused&&G.player.isMonster) pushAction({a:'ability'}); if(e.code==='KeyE'&&!e.repeat) tryInteract(); if(G&&!G.paused&&G.player.isMonster&&!e.repeat){ if(G.monster.frozen){ if(e.code==='Digit1') chooseAbility(G.monster,'dash'); if(e.code==='Digit2') chooseAbility(G.monster,'mimic'); } else { if(e.code==='Digit1') G.attackReq='bite'; if(e.code==='Digit2') G.attackReq='swipe'; } } if(e.code==='Space'&&G&&!G.player.alive) cycleSpectate(); if(e.code==='Escape'&&G&&noLock&&!G.over){ if(G.menuOpen) resumeGame(); else pauseGame(); } });
+  keys[e.code]=true; if(G&&!G.paused&&!G.player.alive&&!G.player.isMonster&&(e.code==='ArrowRight'||e.code==='ArrowLeft')){ e.preventDefault(); cycleSpectate(e.code==='ArrowRight'?1:-1); } if(e.code==='Space'&&G&&!G.paused) e.preventDefault(); if((e.code==='ShiftLeft'||e.code==='ShiftRight')&&!e.repeat&&G&&!G.over&&!G.paused&&G.player.isMonster) pushAction({a:'ability'}); if(e.code==='KeyE'&&!e.repeat) tryInteract(); if(e.code==='KeyF'&&!e.repeat&&G&&!G.over&&!G.paused&&!G.player.isMonster&&G.player.alive) pushAction({a:'push'}); if(G&&!G.paused&&G.player.isMonster&&!e.repeat){ if(G.monster.frozen){ if(e.code==='Digit1') chooseAbility(G.monster,'dash'); if(e.code==='Digit2') chooseAbility(G.monster,'mimic'); } else { if(e.code==='Digit1') G.attackReq='bite'; if(e.code==='Digit2') G.attackReq='swipe'; } } if(e.code==='Space'&&G&&!G.player.alive) cycleSpectate(); if(e.code==='Escape'&&G&&noLock&&!G.over){ if(G.menuOpen) resumeGame(); else pauseGame(); } });
 addEventListener('keyup',e=>{ keys[e.code]=false; });
 addEventListener('blur',()=>{ for(const k in keys) keys[k]=false; });
 document.querySelectorAll('.opt[data-g]').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll(`.opt[data-g="${b.dataset.g}"]`).forEach(o=>o.classList.remove('on')); b.classList.add('on'); SET[b.dataset.g]=(b.dataset.g==='time'||b.dataset.g==='size')?+b.dataset.v:b.dataset.v; }));
@@ -915,13 +916,13 @@ function netUpdate(dt){
 function applySnapshot(S){
   const p=G.player; G.timeLeft=S.tl; G.elapsed=S.el; G.snapEl=S.el; G.snapAt=performance.now();
   for(const r of S.s){ const a=agentById(G,r[0]); if(!a) continue;
-    const [,x,z,yaw,pitch,mode,moving,cr,leanOff,alive,vent,st,ex,san,exT,lean,lv]=r;
-    a.stamina=st; a.exhausted=!!ex; a.sanity=san; a.exhaustT=exT; a.lateVent=lv;
+    const [,x,z,yaw,pitch,mode,moving,cr,leanOff,alive,vent,st,ex,san,exT,lean,lv,down,pcd]=r;
+    a.stamina=st; a.exhausted=!!ex; a.sanity=san; a.exhaustT=exT; a.lateVent=lv; a.downT=down; a.pushCD=pcd;
     const v=vent>=0?G.vents[vent]:null; if(a.inVent!==v){ if(a.inVent&&a.inVent.occupant===a) a.inVent.occupant=null; a.inVent=v; if(v) v.occupant=a; }
     if(a===p) continue;   // your own movement is predicted locally
     a.net={x,z,yaw}; if(!a.alive||a.inVent){ a.pos.x=x; a.pos.z=z; } a.pitch=pitch; a.mode=mode; a.moving=!!moving; a.crouching=!!cr; a.leanOff=leanOff; a.lean=lean||0; }
   const m=G.monster, M=S.m;
-  for(const k of ['revealT','burstT','burstCD','mimicCD','biteCD','swipeCD','ripCD','ripT','cooldown','atkLock']) m[k]=M[k];
+  for(const k of ['revealT','burstT','burstCD','mimicCD','biteCD','swipeCD','ripCD','ripT','cooldown','atkLock','pounceT']) m[k]=M[k];
   m.frozen=!!M.frozen; m.ability=M.ability; m.seen=M.seen; m.state=M.state; if(M.look!=null) m.look=M.look;
   if(m!==p){ m.net={x:M.x,z:M.z,yaw:M.yaw}; m.pitch=M.pitch; m.mode=M.mode; m.moving=!!M.moving; m.crouching=!!M.crouching; m.lean=M.lean||0; m.leanOff=M.leanOff||0; }
   G.blackouts=S.b.map(([x,z,r,t,dur])=>({x,z,r,t,dur}));
@@ -1063,7 +1064,7 @@ function updatePlayer(dt){
   else {
     const crouch=!!keys.KeyC, wantSprint=!!(keys.ShiftLeft||keys.ShiftRight);
     p.mode=!moving?'idle':crouch?'crouch':(wantSprint&&!p.exhausted&&p.stamina>0)?'sprint':'walk';
-    speed=G.jump?0:speedOf(p.mode);
+    speed=(G.jump||p.downT>0)?0:speedOf(p.mode);
   }
   p.pos.x+=dx*speed*dt; p.pos.z+=dz*speed*dt; collide(p.pos,p.radius);
   p.moving=moving&&speed>0;
@@ -1212,7 +1213,7 @@ function handleEvent(e){
     case 'disguise': { m.disguised=true; m.look=e.look; if(G.mimicMesh) G.scene.remove(G.mimicMesh);
       G.mimicMesh=makeSurvivorMesh(e.look); G.scene.add(G.mimicMesh); G.mimicAgent={mesh:G.mimicMesh,id:9,mode:'idle',moving:false,stepPhase:0,vel:0,lean:0,crouching:false};
       SFX.disguise(X(m),m.pos.z); break; }
-    case 'reveal': m.disguised=false; G.alerted=!!(m.seen&&m.seen.includes(p.id)); SFX.reveal(X(m),m.pos.z); break;   // the unveil has its own sound, no extra sting
+    case 'reveal': if(e.pounce) m.revealT=0; m.disguised=false; G.alerted=!!(m.seen&&m.seen.includes(p.id)); SFX.reveal(X(m),m.pos.z); break;   // the unveil has its own sound, no extra sting
     case 'attack': m.atk={type:e.type,t:0,side:e.side}; if(me(m)&&G.vm) G.vm.userData.atk={type:e.type,t:0,side:e.side};
       if(e.type==='bite') SFX.bite(X(m),m.pos.z); else SFX.swipe(X(m),m.pos.z); break;
     case 'rip': v.broken=true; v.ripAnim=0; m.atk={type:'rip',t:0,side:1}; if(me(m)&&G.vm) G.vm.userData.atk={type:'rip',t:0,side:1};
@@ -1226,6 +1227,12 @@ function handleEvent(e){
       SFX.clank(); break;
     case 'eject': a.pos={x:e.x,z:e.z}; if(a.net) a.net={...a.net,x:e.x,z:e.z};
       if(me(a)){ showMsg('IT FOUND YOU. RUN.',2); G.flash=Math.max(G.flash,0.35); $('flash').style.background='#3a0000'; SFX.sting(); } break;
+    case 'push': { const by=agentById(G,e.by);
+      if(e.miss){ if(me(by)) showMsg('missed',0.6); break; }
+      if(G.net){ a.downT=CONFIG.pushDown; a.pos={x:e.x,z:e.z}; if(a.net) a.net={...a.net,x:e.x,z:e.z}; }
+      if(me(a)){ a.pos={x:e.x,z:e.z}; showMsg((by?by.name.toUpperCase():'SOMEONE')+' SHOVED YOU',1.4); G.flash=Math.max(G.flash,0.2); }
+      if(Math.hypot(a.pos.x-camera.position.x,a.pos.z-camera.position.z)<18) SFX.thump(0.55);
+      break; }
     case 'ventKick': if(me(a)){ showMsg('THE VENT SPITS YOU OUT',2); G.flash=Math.max(G.flash,0.25); } break;
     case 'smilers': if(me(a)&&!G.jump){ G.jump={t:0,s:a}; SFX.scream(); } break;
     case 'caught': onCaught(e); break;
@@ -1283,13 +1290,15 @@ function updateAtmosphere(dt,cam){
   G.redK+=(red-G.redK)*(1-Math.exp(-1.2*dt));
   if(red&&!G.redAnnounced&&!G.over){ G.redAnnounced=true; showMsg(CONFIG.redTime+' SECONDS'+(G.player.isMonster?'':'  ·  vents hold you '+CONFIG.lateVentTime+'s'),2.5); SFX.powerDown(null,null,true); }
   const inD=isDark(cam)?1:0; G.darkK+=(inD-G.darkK)*(1-Math.exp(-3*dt));
+  const ent=G.player.isMonster&&G.player.alive, dk=G.darkK*(ent?0.6:1);   // the Entity's eyes cope better with the dark
   const r=G.redK; _tint.copy(TINT_WARM).lerp(TINT_RED,r);
   G.pool.forEach(pl=>pl.color.copy(LIGHT_WARM).lerp(LIGHT_RED,r));
   G.hemi.color.copy(HEMI_SKY).lerp(HEMI_RSKY,r); G.hemi.groundColor.copy(HEMI_GND).lerp(HEMI_RGND,r);
-  G.hemi.intensity=0.3*(1-0.9*G.darkK)*(1-0.2*r);
-  G.scene.fog.color.copy(FOG).lerp(FOG_RED,r).multiplyScalar(1-0.85*G.darkK); G.scene.background.copy(G.scene.fog.color);
+  G.hemi.intensity=0.3*(1-0.9*dk)*(1-(ent?0.05:0.2)*r);
+  G.scene.fog.color.copy(FOG).lerp(FOG_RED,r).multiplyScalar(1-0.85*dk); G.scene.background.copy(G.scene.fog.color);
   if(G.fogBase===undefined) G.fogBase={near:G.scene.fog.near,far:G.scene.fog.far};
-  G.scene.fog.near=G.fogBase.near*(1-G.darkK)+0.5*G.darkK; G.scene.fog.far=G.fogBase.far*(1-G.darkK)+(CONFIG.darkVision+2)*G.darkK;   // inside a blackout you only see a few meters
+  const farB=G.fogBase.far*(ent?1+(CONFIG.entityRedVision-1)*r:1);
+  G.scene.fog.near=G.fogBase.near*(1-G.darkK)+0.5*G.darkK; G.scene.fog.far=farB*(1-G.darkK)+((ent?CONFIG.entityDarkVision:CONFIG.darkVision)+2)*G.darkK;   // inside a blackout you only see a few meters
 }
 
 /* =====================================================================
@@ -1411,7 +1420,7 @@ function draw(dt){
   // camera host
   let host=p, eye;
   if(!p.alive&&G.spectate>=0){ const s=G.survivors.find(s=>s.id===G.spectate); if(s&&s.alive) host=s; else cycleSpectate(); }
-  if(host===p){ const crouch=!!p.crouching; G.eye+=((p.isMonster&&!p.disguised?(crouch?1.5:2.45):(crouch?1.0:1.62))-G.eye)*Math.min(1,dt*10); eye=G.eye;
+  if(host===p){ const crouch=!!p.crouching; G.eye+=((p.downT>0?0.42:p.isMonster&&!p.disguised?(crouch?1.5:2.45):(crouch?1.0:1.62))-G.eye)*Math.min(1,dt*(p.downT>0?16:10)); eye=G.eye;
     const back=(!p.isMonster&&p.alive&&!p.inVent&&!G.ejump&&keys.Digit1)?Math.PI:0;
     G.lookBack=(G.lookBack||0)+(back-(G.lookBack||0))*(1-Math.exp(-22*dt));
     camera.rotation.y=p.yaw+G.lookBack; camera.rotation.x=back?0:p.pitch; }
@@ -1435,13 +1444,14 @@ function draw(dt){
   const bob=(0.025-Math.abs(Math.sin(bp*Math.PI))*0.05)*bw*(host.isMonster?1.2:host.mode==='sprint'?1.2:0.8);
   camera.position.set(host.pos.x,eye+bob,host.pos.z);
   if(host.inVent){ camera.position.set(host.inVent.cam.x,0.36,host.inVent.cam.z); eye=0.36; }
-  camera.rotation.z=Math.sin(t*0.7)*0.004+Math.sin(bp*Math.PI)*0.007*bw;
+  camera.rotation.z=Math.sin(t*0.7)*0.004+Math.sin(bp*Math.PI)*0.007*bw+(host===p&&!p.isMonster?(p.mesh.userData.fall||0)*0.45:0);
   if(host===p&&p.leanOff){ const lx=Math.cos(p.yaw), lz=-Math.sin(p.yaw), lm=p.isMonster?CONFIG.leanEntity:CONFIG.leanSurvivor;
     camera.position.x+=lx*p.leanOff; camera.position.z+=lz*p.leanOff; camera.position.y-=Math.abs(p.leanOff)*0.12; camera.rotation.z-=(p.leanOff/lm)*0.14; }
   SFX.listener(host.pos.x,eye,host.pos.z,camera.rotation.y);
   // meshes
   for(const s of G.survivors){ if(!s.alive) continue; s.mesh.visible=s!==host&&!s.inVent;   // hiders are inside the wall, not standing in front of it
-    s.mesh.position.set(s.pos.x,0,s.pos.z); s.mesh.rotation.y=s.yaw; if(s.mesh.visible) animateSuit(s,dt,t); }
+    s.mesh.position.set(s.pos.x,0,s.pos.z); s.mesh.rotation.order='YXZ'; s.mesh.rotation.y=s.yaw; if(s.mesh.visible) animateSuit(s,dt,t);
+    const fk=s.downT>0?1:0, u=s.mesh.userData; u.fall=(u.fall||0)+(fk-(u.fall||0))*(1-Math.exp(-(fk?16:5)*dt)); s.mesh.rotation.x=u.fall*1.35; }   // shoved: topples over
   const mm=m.mesh; mm.visible=!m.absent; mm.position.set(m.pos.x,0,m.pos.z); mm.rotation.set(0,m.yaw,0);
   const revealing=m.revealT>0, showFake=m.disguised||(revealing&&Math.random()<m.revealT/CONFIG.revealTime);
   if(G.mimicMesh){ const fa=G.mimicAgent; G.mimicMesh.visible=showFake&&host!==m; G.mimicMesh.position.set(m.pos.x+(revealing?(Math.random()-0.5)*0.15:0),0,m.pos.z); G.mimicMesh.rotation.y=m.yaw;
@@ -1464,7 +1474,7 @@ function draw(dt){
   else if(G.msgT>0){ G.msgT-=dt; if(G.msgT<=0) $('msg').textContent=''; }
   else if(!p.alive) $('msg').textContent=G.spectate>=0?'◄  spectating '+(G.survivors.find(s=>s.id===G.spectate)||{}).name+'  ►':'';
   else $('msg').textContent='';
-  if(p.isMonster){ const cd=(n,k,v)=>`[${k}] ${n} `+(v>0?v.toFixed(1)+'s':'ready'); $('cool').textContent=m.frozen?'':[cd('Bite','1',m.biteCD),cd('Swipe','2',m.swipeCD),m.ability==='mimic'?(m.disguised?'DISGUISED · [Shift] unveil':m.revealT>0?'UNVEILING…':cd('Mimic','Shift',m.mimicCD)):(m.burstT>0?'BURST!':cd('Dash','Shift',m.burstCD)),cd('Rip vent','E',m.ripCD)].join('   ·   '); }
+  if(p.isMonster){ const cd=(n,k,v)=>`[${k}] ${n} `+(v>0?v.toFixed(1)+'s':'ready'); $('cool').textContent=m.frozen?'':[cd('Bite','1',m.biteCD),cd('Swipe','2',m.swipeCD),m.ability==='mimic'?(m.disguised?'DISGUISED · [1] pounce · [Shift] unveil':m.revealT>0?'UNVEILING…':cd('Mimic','Shift',m.mimicCD)):(m.burstT>0?'BURST!':cd('Dash','Shift',m.burstCD)),cd('Rip vent','E',m.ripCD)].join('   ·   '); }
   $('cross').style.display=p.alive?'':'none';
   // heartbeat + vignette (survivor view)
   let fear=0;
