@@ -71,3 +71,5 @@
 
   .menuNote{font-size:12px;min-height:16px;margin:4px 0 6px;color:#f3c96b;opacity:.9}
   .opt:disabled{opacity:.35;cursor:not-allowed}
+  .warn{margin-top:14px;padding:9px 11px;border:1px solid rgba(243,201,107,.45);background:rgba(243,201,107,.07);color:#f3c96b;font-size:11px;line-height:1.5}
+  .warn b{letter-spacing:1px}
