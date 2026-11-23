@@ -835,7 +835,7 @@ function survivorControls(p){
   if(!p.alive) return '[←] [→] switch who you spectate';
   const late=lateRound(), lv=Math.ceil(p.lateVent==null?CONFIG.lateVentTime:p.lateVent);
   if(p.inVent) return '[E] climb out   ·   [Hold 1] look behind'+(late?'   ·   kicked out in '+lv+'s':'');
-  return [p.exhausted?'[Shift] sprint '+Math.ceil(p.exhaustT||0)+'s':'[Shift] sprint','[C] crouch','[Space]+[A/D] lean','[Hold 1] look behind',late?(lv>0?'[E] vent ('+lv+'s left)':'vents closed'):'[E] vent'].join('   ·   ');
+  return [p.exhausted?'[Shift] sprint '+Math.ceil(p.exhaustT||0)+'s':'[Shift] sprint','[C] crouch','[Space]+[A/D] lean','[Hold 1] look behind',late?'[E] vent ('+CONFIG.lateVentTime+'s max)':'[E] vent'].join('   ·   ');
 }
 function updateLookUI(){
   const inRound=!!(G&&!G.over&&!G.menuOpen);
@@ -1279,7 +1279,7 @@ const LIGHT_WARM=srgb(0xfff0cf), LIGHT_RED=srgb(0xff2a18), HEMI_SKY=srgb(0xe8d39
 function updateAtmosphere(dt,cam){
   const red=G.timeLeft<=CONFIG.redTime?1:0;
   G.redK+=(red-G.redK)*(1-Math.exp(-1.2*dt));
-  if(red&&!G.redAnnounced&&!G.over){ G.redAnnounced=true; showMsg(CONFIG.redTime+' SECONDS'+(G.player.isMonster?'':'  ·  vents hold you '+CONFIG.lateVentTime+'s max'),2.5); SFX.powerDown(null,null,true); }
+  if(red&&!G.redAnnounced&&!G.over){ G.redAnnounced=true; showMsg(CONFIG.redTime+' SECONDS'+(G.player.isMonster?'':'  ·  vents hold you '+CONFIG.lateVentTime+'s'),2.5); SFX.powerDown(null,null,true); }
   const inD=isDark(cam)?1:0; G.darkK+=(inD-G.darkK)*(1-Math.exp(-3*dt));
   const r=G.redK; _tint.copy(TINT_WARM).lerp(TINT_RED,r);
   G.pool.forEach(pl=>pl.color.copy(LIGHT_WARM).lerp(LIGHT_RED,r));

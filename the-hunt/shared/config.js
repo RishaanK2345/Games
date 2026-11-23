@@ -53,7 +53,7 @@ export const CONFIG = {
   fogFar: 25,
   corruptTime: 120,
   redTime: 30,             // last N seconds: every light turns red
-  lateVentTime: 5,         // ...and in those last N seconds each survivor gets only this much vent time in total
+  lateVentTime: 5,         // ...and in those last N seconds a vent only holds you this long per visit
   blackoutMin: 25,         // seconds between regional blackouts (random in range)
   blackoutMax: 45,
   blackoutRadius: 2.5,     // in cells (~10 m across)

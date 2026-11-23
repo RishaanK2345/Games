@@ -172,9 +172,9 @@ function doAction(a, act) {
 export function ventSideOK(a, v) {
   return (a.pos.x - v.px) * v.nx + (a.pos.z - v.pz) * v.nz > 0.05 && los(a.pos.x, a.pos.z, v.front.x, v.front.z);
 }
-/** final stretch of the round: vents only hold you for CONFIG.lateVentTime seconds in total */
+/** final stretch of the round: each vent visit only lasts CONFIG.lateVentTime seconds */
 export const lateRound = () => G.timeLeft <= CONFIG.redTime;
-export const canHide = s => !(lateRound() && (s.lateVent == null ? CONFIG.lateVentTime : s.lateVent) <= 0);
+export const canHide = s => true;   // vents stay open; only the stay is capped late in the round
 export function usableVent(a) {
   const fx = -Math.sin(a.yaw), fz = -Math.cos(a.yaw); let best = null, bd = 1e9;
   for (const v of G.vents) {
@@ -412,7 +412,7 @@ function catchSurvivor(s, cause) {
    VENTS + SANITY (smilers)
    ===================================================================== */
 function enterVent(s, vent) {
-  if (!canHide(s)) return;
+  s.lateVent = CONFIG.lateVentTime;   // every visit gets a fresh timer
   s.inVent = vent; vent.occupant = s; s.mode = 'idle'; s.moving = false;
   s.pos = { ...vent.front }; s.yaw = vent.yawOut; s.pitch = -0.05;
   emit({ t: 'ventIn', id: s.id, v: vent.id });
