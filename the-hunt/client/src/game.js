@@ -810,7 +810,7 @@ function beginRound(opts,myPid,net){
   $('abilityPick').classList.toggle('hidden',!player.isMonster); if(player.isMonster) setTimeout(renderAbilityPick,0);
   $('role').textContent=player.isMonster?'You are the Entity':'You are a Survivor';
   const anomaly=W.anomaly;
-  $('seedTag').textContent='seed: '+String(W.seed).replace(/-(\d+)$/,'  ·  round $1')+(anomaly.name?'  ·  anomaly: '+anomaly.name.toLowerCase():'')+(net?'  ·  online':'');
+  $('seedTag').textContent='seed: '+String(W.seed).replace(/-(\d+)$/,'  ·  round $1')+(net?'  ·  online':'');
   const an=$('anomaly'); if(anomaly.name){ $('anTitle').textContent=anomaly.name; $('anDesc').textContent=anomaly.desc; an.classList.remove('hidden'); an.style.opacity=1; const g0=G; setTimeout(()=>{ if(G===g0) an.style.opacity=0; },7000); } else an.classList.add('hidden');
   $('stamWrap').classList.toggle('hidden',player.isMonster);
   $('feed').innerHTML='';
