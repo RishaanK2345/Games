@@ -1294,7 +1294,7 @@ const LIGHT_WARM=srgb(0xfff0cf), LIGHT_RED=srgb(0xff2a18), HEMI_SKY=srgb(0xe8d39
 function updateAtmosphere(dt,cam){
   const red=G.timeLeft<=CONFIG.redTime?1:0;
   G.redK+=(red-G.redK)*(1-Math.exp(-1.2*dt));
-  if(red&&!G.redAnnounced&&!G.over){ G.redAnnounced=true; showMsg(CONFIG.redTime+' SECONDS'+(G.player.isMonster?'':'  ·  the smilers come after '+CONFIG.lateVentTime+'s in a vent'),2.5); SFX.powerDown(null,null,true); }
+  if(red&&!G.redAnnounced&&!G.over){ G.redAnnounced=true; SFX.powerDown(null,null,true); }   // lights go red (no text, just the sound)
   const inD=isDark(cam)?1:0; G.darkK+=(inD-G.darkK)*(1-Math.exp(-3*dt));
   const ent=G.player.isMonster&&G.player.alive, dk=G.darkK*(ent?0.6:1);   // the Entity's eyes cope better with the dark
   const r=G.redK; _tint.copy(TINT_WARM).lerp(TINT_RED,r);

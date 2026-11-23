@@ -2,7 +2,7 @@
 import { makeRng } from './rng.js';
 
 /** bump this whenever the client and server must match; old tabs get told to refresh */
-export const GAME_VERSION = 15;
+export const GAME_VERSION = 16;
 
 export const BOT_NAMES = ['Marlow', 'Juniper', 'Okafor', 'Vasquez', 'Lindqvist', 'Tamsin', 'Ruiz', 'Hollis', 'Petrova', 'Nakamura', 'Briggs', 'Adeyemi', 'Sato', 'Kowalski', 'Fenwick', 'Delacroix', 'Moreau', 'Achebe', 'Halloran', 'Ivers'];
 

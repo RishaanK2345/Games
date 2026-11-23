@@ -9,7 +9,6 @@ export const ANOMALIES=[
   {id:'flooded',name:'FLOODED',desc:'The carpet is soaked almost everywhere. Every step squelches.',w:2,apply:c=>{ c.wetDensity=0.45; }},
   {id:'fog',name:'THICK AIR',desc:'You can barely see past your own hands. Neither can it.',w:2,apply:c=>{ c.fogFar=11; c.visionRange=14; }},
   {id:'vents',name:'VENT INFESTATION',desc:'Vents everywhere, and the smilers are restless.',w:2,apply:c=>{ c.ventDensity=0.065; c.ventWarn=9; c.ventSmilers=13; c.ventDeath=17; }},
-  {id:'hunger',name:'HUNGER',desc:'The Entity is starving. Its abilities recharge twice as fast.',w:2,apply:c=>{ c.entityBurstCooldown/=2; c.mimicCooldown/=2; c.ripCooldown/=2; c.swipeCooldown/=2; }},
 ];
 export function pickAnomaly(seed,enabled=true){
   if(!enabled) return ANOMALIES[0];
