@@ -59,6 +59,7 @@
     background: var(--veil); cursor: default;
   }
   #overlay.show { display: flex; }
+  #credit { position: absolute; right: 14px; bottom: 10px; font-size: 11px; letter-spacing: 1px; color: #e8dca0; opacity: .45; pointer-events: none; display: none; }
 
   /* Controls panel (key 8). Its rows are rebuilt from live game state every time it opens. */
   #binds, #cyber, #pause {
@@ -184,6 +185,7 @@
     <p id="o-body"></p>
     <div id="o-choices"></div>
     <p id="o-hint"></p>
+    <div id="credit">made by Rishaan K</div>
   </div>
 </div>
 
@@ -1808,6 +1810,7 @@ const Sound = {
    8. GAME FLOW
    ===================================================================== */
 function showOverlay(title, body, hint, choices) {
+  document.getElementById('credit').style.display = 'none';   // the credit is only on the main menu
   oTitle.textContent = title; oBody.innerHTML = body; oHint.textContent = hint;
   oChoices.innerHTML = choices || '';
   if (choices) oChoices.classList.add('show'); else oChoices.classList.remove('show');
@@ -1828,6 +1831,7 @@ function showTitle() {
     
     
     'Click to deploy');
+  document.getElementById('credit').style.display = 'block';
 }
 
 /** Starts or instantly restarts the mission. Bound to 9 and the title click. */
