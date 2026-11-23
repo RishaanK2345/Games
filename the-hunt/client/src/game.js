@@ -902,6 +902,8 @@ function showOnlineLobby(){
   PANELS.forEach(x=>$(x).classList.add('hidden')); $('end').classList.add('hidden'); $('lobby').classList.remove('hidden'); renderLobby();
 }
 /** online: send your inputs, smooth everyone else toward the server's positions */
+/** online: the server time your screen is showing (latest snapshot + time since, minus the ~0.07 s smoothing) */
+function viewTime(){ if(!G||!G.net||G.snapAt==null) return 0; return G.snapEl+(performance.now()-G.snapAt)/1000-1/14; }
 function netUpdate(dt){
   const p=G.player; G.sendT-=dt; if(G.sendT<=0){ G.sendT=0.05; G.net.room.send('input',p.input); }
   G.elapsed+=dt; G.timeLeft-=dt; for(const b of G.blackouts) b.t+=dt;
@@ -911,7 +913,7 @@ function netUpdate(dt){
     a.yaw+=angDiff(a.yaw,n.yaw)*k; }
 }
 function applySnapshot(S){
-  const p=G.player; G.timeLeft=S.tl; G.elapsed=S.el;
+  const p=G.player; G.timeLeft=S.tl; G.elapsed=S.el; G.snapEl=S.el; G.snapAt=performance.now();
   for(const r of S.s){ const a=agentById(G,r[0]); if(!a) continue;
     const [,x,z,yaw,pitch,mode,moving,cr,leanOff,alive,vent,st,ex,san,exT,lean,lv]=r;
     a.stamina=st; a.exhausted=!!ex; a.sanity=san; a.exhaustT=exT; a.lateVent=lv;
@@ -1395,7 +1397,7 @@ function update(dt){
   const p=G.player, m=G.monster;
   updatePlayer(dt);   // your own movement, predicted right away
   p.input={x:p.pos.x,z:p.pos.z,yaw:p.yaw,pitch:p.pitch,mode:p.mode,moving:p.moving,crouch:p.crouching,lean:p.lean||0,leanOff:p.leanOff||0};
-  if(G.attackReq){ pushAction({a:'attack',type:G.attackReq}); G.attackReq=null; }
+  if(G.attackReq){ pushAction({a:'attack',type:G.attackReq,el:viewTime()}); G.attackReq=null; }
   if(G.net) netUpdate(dt); else step(G,dt);   // offline: run the round here. online: the server runs it
   drainEvents(); if(!G) return;
   updateSanity(dt);
@@ -1689,6 +1691,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   updateViewer:{get:()=>updateViewer,configurable:true},
   usableVent:{get:()=>usableVent,configurable:true},
   ventSideOK:{get:()=>ventSideOK,configurable:true},
+  viewTime:{get:()=>viewTime,configurable:true},
   catchSurvivor:{get:()=>(...a)=>{ bindRound(G); const r=SIM.DEBUG.catchSurvivor(...a); drainEvents(); return r; },configurable:true},
   toggleMimic:{get:()=>(...a)=>{ bindRound(G); const r=SIM.DEBUG.toggleMimic(...a); drainEvents(); return r; },configurable:true},
   entityAttack:{get:()=>(...a)=>{ bindRound(G); const r=SIM.DEBUG.entityAttack(...a); drainEvents(); return r; },configurable:true},

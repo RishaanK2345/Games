@@ -121,6 +121,7 @@ export function step(W, dt) {
   if (!m.human && !m.absent) updateMonsterBot(m, dt);
   if (!m.absent && !m.frozen) { m.seenT -= dt; if (m.seenT <= 0) { m.seenT = 0.1; m.seen = W.survivors.filter(s => s.alive && !s.inVent && canSee(m, s)).map(s => s.id); } }
   updateSanity(dt); updateVentRips(dt); updateBlackouts(dt);
+  if (W.lagComp) recordHistory(W);
   // win check
   const alive = W.survivors.filter(s => s.alive).length;
   if (alive === 0 && W.survivors.length) endRound('monster'); else if (W.timeLeft <= 0) endRound('survivors');
@@ -163,7 +164,7 @@ function applyHuman(a, inp, dt) {
 function doAction(a, act) {
   if (G.over || !a.alive || !act) return;
   if (act.a === 'use') useAction(a);
-  else if (a.isMonster && act.a === 'attack' && (act.type === 'bite' || act.type === 'swipe')) entityAttack(a, act.type);
+  else if (a.isMonster && act.a === 'attack' && (act.type === 'bite' || act.type === 'swipe')) entityAttack(a, act.type, act.el);
   else if (a.isMonster && act.a === 'ability') useAbility(a);
   else if (a.isMonster && act.a === 'pick' && a.frozen && (act.ab === 'dash' || act.ab === 'mimic')) { a.ability = act.ab; emit({ t: 'ability', ab: act.ab }); }
 }
@@ -389,7 +390,36 @@ function attackTarget(m, type) {
     if (!los(m.pos.x, m.pos.z, s.pos.x, s.pos.z)) continue; if (d < bd) { bd = d; best = s; } }
   return best;
 }
-function entityAttack(m, type) {
+/* ---------- lag compensation (online) ----------
+   The Entity player sees survivors where they were a moment ago (network delay +
+   smoothing). The server keeps ~0.4 s of survivor positions and checks an attack
+   against where they were at the moment the attacker saw them, capped at
+   CONFIG.maxRewind so nobody gets hit from far around a corner. */
+function recordHistory(W) {
+  const h = W.hist || (W.hist = []);
+  h.push({ el: W.elapsed, p: W.survivors.map(s => [s.pos.x, s.pos.z]) });
+  while (h.length > 2 && W.elapsed - h[0].el > 0.45) h.shift();
+}
+/** survivor positions at server time `el` (interpolated between recorded ticks) */
+function positionsAt(W, el) {
+  const h = W.hist; if (!h || !h.length) return null;
+  if (el <= h[0].el) return h[0].p;
+  for (let i = h.length - 1; i > 0; i--) if (h[i - 1].el <= el) {
+    const a = h[i - 1], b = h[i], k = b.el > a.el ? clamp((el - a.el) / (b.el - a.el), 0, 1) : 1;
+    return a.p.map((pa, j) => [pa[0] + (b.p[j][0] - pa[0]) * k, pa[1] + (b.p[j][1] - pa[1]) * k]);
+  }
+  return h[h.length - 1].p;
+}
+/** run fn with survivors moved back to where the attacker saw them (alive/vent state stays current) */
+function withRewind(viewEl, fn) {
+  const W = G; if (!W.lagComp || !(viewEl > 0)) return fn();
+  const back = clamp(W.elapsed - viewEl, 0, CONFIG.maxRewind); if (back < 0.005) return fn();
+  const old = positionsAt(W, W.elapsed - back); if (!old) return fn();
+  const saved = W.survivors.map(s => s.pos);
+  W.survivors.forEach((s, j) => { if (old[j]) s.pos = { x: old[j][0], z: old[j][1] }; });
+  try { return fn(); } finally { W.survivors.forEach((s, j) => { s.pos = saved[j]; }); }
+}
+function entityAttack(m, type, viewEl) {
   if (m.frozen || G.over || m.atkLock > 0 || m.ripT > 0) return false;
   if (m.disguised) { toggleMimic(m); return false; }   // attacking unveils you first
   if (m.revealT > 0) return false;
@@ -397,7 +427,7 @@ function entityAttack(m, type) {
   m[key] = type === 'bite' ? CONFIG.biteCooldown : CONFIG.swipeCooldown;           // cooldown applies on hit or miss
   m.atkSide = -(m.atkSide || 1);
   emit({ t: 'attack', type, side: m.atkSide });
-  const s = attackTarget(m, type);
+  const s = m.human ? withRewind(viewEl, () => attackTarget(m, type)) : attackTarget(m, type);
   if (s) { catchSurvivor(s); endBurst(m); m.cooldown = CONFIG.catchRecover; }
   return true;
 }

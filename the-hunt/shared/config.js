@@ -29,6 +29,7 @@ export const CONFIG = {
   sprintTime: 10,          // seconds of sprint on a full bar
   exhaustCooldown: 6.5,      // if the bar hits zero: no sprinting for this long (bar refills during it)
   staminaRegen: 1/7,       // normal refill rate when not sprinting
+  maxRewind: 0.3,          // online: how far back (s) the server may look when checking an Entity attack (lag compensation)
   biteRange: 1.5,          // [1] bite: same reach as the old attack
   biteCooldown: 1.0,
   swipeRange: 2.45,         // [2] arm swipe: longer reach, wide arc

@@ -79,7 +79,7 @@ export class GameRoom extends Room {
     const roster = players.map(q => ({ name: q.name, human: !q.bot, pid: q.bot ? null : q.key }));
     const chosen = players.findIndex(q => q.key === this.settings.entity);
     const opts = { seed: this.code, size: this.settings.size, anomalies: this.settings.anomalies, roster, entity: pickEntity(this.code, roster.length, chosen) };
-    this.W = createRound(opts); this.phase = 'playing'; this.countdown = -1; this.snapT = 0;
+    this.W = createRound(opts); this.W.lagComp = true; this.phase = 'playing'; this.countdown = -1; this.snapT = 0;
     this.broadcast('start', opts);   // every client builds the identical round from these options
   }
   agentOf(c) { if (!this.W || this.phase !== 'playing') return null; const W = this.W; return [W.monster, ...W.survivors].find(a => a.pid === c.sessionId) || null; }
