@@ -168,11 +168,19 @@ function doAction(a, act) {
   else if (a.isMonster && act.a === 'pick' && a.frozen && (act.ab === 'dash' || act.ab === 'mimic')) { a.ability = act.ab; emit({ t: 'ability', ab: act.ab }); }
 }
 /** the vent this agent can use right now (same rules as the on-screen prompt) */
+/** true if the agent is on the vent's open side of the wall (not behind it) with a clear line to it */
+export function ventSideOK(a, v) {
+  return (a.pos.x - v.px) * v.nx + (a.pos.z - v.pz) * v.nz > 0.05 && los(a.pos.x, a.pos.z, v.front.x, v.front.z);
+}
+/** final stretch of the round: vents only hold you for CONFIG.lateVentTime seconds in total */
+export const lateRound = () => G.timeLeft <= CONFIG.redTime;
+export const canHide = s => !(lateRound() && (s.lateVent == null ? CONFIG.lateVentTime : s.lateVent) <= 0);
 export function usableVent(a) {
   const fx = -Math.sin(a.yaw), fz = -Math.cos(a.yaw); let best = null, bd = 1e9;
   for (const v of G.vents) {
     if (v.broken) continue;
-    if (a.isMonster ? a.disguised : (v.occupant || a.ventCD > 0)) continue;
+    if (a.isMonster ? a.disguised : (v.occupant || a.ventCD > 0 || !canHide(a))) continue;
+    if (!ventSideOK(a, v)) continue;                                  // not through the wall
     const dx = v.face.x - a.pos.x, dz = v.face.z - a.pos.z, d = Math.hypot(dx, dz);
     if (d > 1.5 || d >= bd) continue;
     if (d > 0.2 && (dx * fx + dz * fz) / d < 0.35) continue;          // must roughly face it
@@ -235,7 +243,7 @@ function nearbyHideVent(s) {
   // a free vent that's close to us and not closer to the Entity than to us
   const m = G.monster; let best = null, bd = 1e9;
   for (const v of G.vents) { if (v.broken || v.occupant) continue; const d = dist2(s.pos, v.front); if (d > 9) continue;
-    if (dist2(m.pos, v.front) < d + 2.5) continue; if ((s.botVentCD || 0) > 0) continue; if (d < bd) { bd = d; best = v; } }
+    if (dist2(m.pos, v.front) < d + 2.5) continue; if ((s.botVentCD || 0) > 0 || !canHide(s)) continue; if (d < bd) { bd = d; best = v; } }
   return best;
 }
 function updateBotSurvivor(s, dt) {
@@ -373,7 +381,7 @@ function toggleMimic(m) {
 }
 function updateMimic(m, dt) { if (m.revealT > 0) m.revealT = Math.max(0, m.revealT - dt); if (!m.disguised && m.revealT <= 0) m.mimicCD = Math.max(0, m.mimicCD - dt); }
 function attackTarget(m, type) {
-  const range = type === 'bite' ? CONFIG.biteRange : CONFIG.swipeRange, arc = type === 'bite' ? 0.45 : 0.1;
+  const range = type === 'bite' ? CONFIG.biteRange : CONFIG.swipeRange, arc = type === 'bite' ? 0.45 : 0.0;   // swipe: a little more forgiving to the sides
   const fx = -Math.sin(m.yaw), fz = -Math.cos(m.yaw); let best = null, bd = 1e9;
   for (const s of G.survivors) { if (!s.alive || s.inVent) continue; const d = dist2(m.pos, s.pos); if (d > range) continue;
     const dot = ((s.pos.x - m.pos.x) * fx + (s.pos.z - m.pos.z) * fz) / Math.max(d, 0.01); if (dot < arc && d > 0.7) continue;
@@ -404,6 +412,7 @@ function catchSurvivor(s, cause) {
    VENTS + SANITY (smilers)
    ===================================================================== */
 function enterVent(s, vent) {
+  if (!canHide(s)) return;
   s.inVent = vent; vent.occupant = s; s.mode = 'idle'; s.moving = false;
   s.pos = { ...vent.front }; s.yaw = vent.yawOut; s.pitch = -0.05;
   emit({ t: 'ventIn', id: s.id, v: vent.id });
@@ -435,6 +444,12 @@ function updateSanity(dt) {
   for (const s of G.survivors) {
     s.ventCD = Math.max(0, (s.ventCD || 0) - dt);
     if (s.inVent) s.sanity += dt; else s.sanity = Math.max(0, s.sanity - dt * CONFIG.sanityRecover);
+    if (s.lateVent == null) s.lateVent = CONFIG.lateVentTime;
+    if (s.alive && s.inVent && lateRound() && s.jumpT == null) {
+      s.lateVent = Math.max(0, s.lateVent - dt);
+      if (s.lateVent <= 0) { const v = s.inVent; exitVent(s); s.ventCD = 2; emit({ t: 'ventKick', id: s.id, v: v.id });
+        if (!s.human) { s.state = 'wander'; s.think = 0; } continue; }
+    }
     if (!s.alive || !s.inVent) continue;
     if (!s.human) { if (s.sanity >= CONFIG.ventDeath) catchSurvivor(s, 'smilers'); continue; }
     // a real player gets the smiler jumpscare first, then dies
@@ -467,7 +482,7 @@ export function snapshot(W) {
   return {
     tl: r2(W.timeLeft), el: r2(W.elapsed),
     s: W.survivors.map(s => [s.id, r2(s.pos.x), r2(s.pos.z), r2(s.yaw), r2(s.pitch), s.mode, s.moving ? 1 : 0, s.crouching ? 1 : 0, r2(s.leanOff || 0), s.alive ? 1 : 0,
-      s.inVent ? s.inVent.id : -1, r2(s.stamina), s.exhausted ? 1 : 0, r2(s.sanity), r2(s.exhaustT || 0), r2(s.lean || 0)]),
+      s.inVent ? s.inVent.id : -1, r2(s.stamina), s.exhausted ? 1 : 0, r2(s.sanity), r2(s.exhaustT || 0), r2(s.lean || 0), r2(s.lateVent == null ? CONFIG.lateVentTime : s.lateVent)]),
     m: { x: r2(m.pos.x), z: r2(m.pos.z), yaw: r2(m.yaw), pitch: r2(m.pitch), lean: r2(m.lean || 0), leanOff: r2(m.leanOff || 0), mode: m.mode, moving: m.moving ? 1 : 0, crouching: m.crouching ? 1 : 0, state: m.state,
       disguised: m.disguised ? 1 : 0, look: m.look, revealT: r2(m.revealT), burstT: r2(m.burstT), burstCD: r2(m.burstCD), mimicCD: r2(m.mimicCD), biteCD: r2(m.biteCD),
       swipeCD: r2(m.swipeCD), ripCD: r2(m.ripCD), ripT: r2(m.ripT), cooldown: r2(m.cooldown), atkLock: r2(m.atkLock), frozen: m.frozen ? 1 : 0, ability: m.ability, seen: m.seen },

@@ -31,7 +31,7 @@ export const CONFIG = {
   staminaRegen: 1/7,       // normal refill rate when not sprinting
   biteRange: 1.5,          // [1] bite: same reach as the old attack
   biteCooldown: 1.0,
-  swipeRange: 2.2,         // [2] arm swipe: longer reach, wide arc
+  swipeRange: 2.45,         // [2] arm swipe: longer reach, wide arc
   swipeCooldown: 3,
   catchRecover: 1.5,       // Entity is slowed briefly after catching someone
   hearSprint: 20,
@@ -53,6 +53,7 @@ export const CONFIG = {
   fogFar: 25,
   corruptTime: 120,
   redTime: 30,             // last N seconds: every light turns red
+  lateVentTime: 5,         // ...and in those last N seconds each survivor gets only this much vent time in total
   blackoutMin: 25,         // seconds between regional blackouts (random in range)
   blackoutMax: 45,
   blackoutRadius: 2.5,     // in cells (~10 m across)

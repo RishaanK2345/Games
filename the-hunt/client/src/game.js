@@ -11,7 +11,7 @@ import { hashSeed, makeRng, clamp, dist2 } from '../../shared/rng.js';
 import { generateMap, neighbors, bfs, pathFrom } from '../../shared/mapgen.js';
 import { MAP, BOXES, setWorld, buildColliders, cellOf, nearby, pointBlocked, collide, los } from '../../shared/physics.js';
 import { ANOMALIES, pickAnomaly } from '../../shared/anomalies.js';
-import { createRound, step, bindRound, pickEntity, agentById, ENTITY_ID, fmt, angDiff, turnToward, speedOf, isWet, noiseRadius, isDark, blackoutAt, canSee, entitySpeed, usableVent } from '../../shared/sim.js';
+import { createRound, step, bindRound, pickEntity, agentById, ENTITY_ID, fmt, angDiff, turnToward, speedOf, isWet, noiseRadius, isDark, blackoutAt, canSee, entitySpeed, usableVent, ventSideOK, canHide, lateRound } from '../../shared/sim.js';
 import * as SIM from '../../shared/sim.js';
 import { BOT_NAMES, botNames as rosterBotNames, cleanName, GAME_VERSION } from '../../shared/roster.js';
 import { SERVER_URL, joinRoom } from './net.js';
@@ -789,7 +789,7 @@ function beginRound(opts,myPid,net){
   G=Object.assign(W,world,{player,vm,net,interact:[],corpses:[],redK:0,darkK:0,redAnnounced:false,jump:null,duct:null,insane:0,paused:false,
      spectate:-1,camYaw:player.yaw,feed:[],msgT:0,beatT:0,poolT:0,flash:0,eye:player.isMonster?2.45:1.62,attackReq:false,noiseCues:[],stingCD:0,alerted:false,sendT:0});
   for(const v of W.vents) addInteractable({pos:v.face,range:1.5,
-    label:a=>v.broken?null:a.isMonster?(G.monster.disguised?null:G.monster.ripCD>0?'Rip open vent ('+Math.ceil(G.monster.ripCD)+'s)':'Rip open vent'):(v.occupant||a.ventCD>0)?null:'Enter vent'});
+    label:a=>(v.broken||!ventSideOK(a,v))?null:a.isMonster?(G.monster.disguised?null:G.monster.ripCD>0?'Rip open vent ('+Math.ceil(G.monster.ripCD)+'s)':'Rip open vent'):(v.occupant||a.ventCD>0||!canHide(a))?null:'Enter vent'});
   canvas.style.filter='';
   $('abilityPick').classList.toggle('hidden',!player.isMonster); if(player.isMonster) setTimeout(renderAbilityPick,0);
   $('role').textContent=player.isMonster?'You are the Entity':'You are a Survivor';
@@ -833,8 +833,9 @@ function edgeTurn(dt){
 /** the survivor's control strip at the bottom of the screen (live: shows exhaustion, vent state, spectating) */
 function survivorControls(p){
   if(!p.alive) return '[←] [→] switch who you spectate';
-  if(p.inVent) return '[E] climb out   ·   [Hold 1] look behind';
-  return [p.exhausted?'[Shift] sprint '+Math.ceil(p.exhaustT||0)+'s':'[Shift] sprint','[C] crouch','[Space]+[A/D] lean','[Hold 1] look behind','[E] vent'].join('   ·   ');
+  const late=lateRound(), lv=Math.ceil(p.lateVent==null?CONFIG.lateVentTime:p.lateVent);
+  if(p.inVent) return '[E] climb out   ·   [Hold 1] look behind'+(late?'   ·   kicked out in '+lv+'s':'');
+  return [p.exhausted?'[Shift] sprint '+Math.ceil(p.exhaustT||0)+'s':'[Shift] sprint','[C] crouch','[Space]+[A/D] lean','[Hold 1] look behind',late?(lv>0?'[E] vent ('+lv+'s left)':'vents closed'):'[E] vent'].join('   ·   ');
 }
 function updateLookUI(){
   const inRound=!!(G&&!G.over&&!G.menuOpen);
@@ -912,8 +913,8 @@ function netUpdate(dt){
 function applySnapshot(S){
   const p=G.player; G.timeLeft=S.tl; G.elapsed=S.el;
   for(const r of S.s){ const a=agentById(G,r[0]); if(!a) continue;
-    const [,x,z,yaw,pitch,mode,moving,cr,leanOff,alive,vent,st,ex,san,exT,lean]=r;
-    a.stamina=st; a.exhausted=!!ex; a.sanity=san; a.exhaustT=exT;
+    const [,x,z,yaw,pitch,mode,moving,cr,leanOff,alive,vent,st,ex,san,exT,lean,lv]=r;
+    a.stamina=st; a.exhausted=!!ex; a.sanity=san; a.exhaustT=exT; a.lateVent=lv;
     const v=vent>=0?G.vents[vent]:null; if(a.inVent!==v){ if(a.inVent&&a.inVent.occupant===a) a.inVent.occupant=null; a.inVent=v; if(v) v.occupant=a; }
     if(a===p) continue;   // your own movement is predicted locally
     a.net={x,z,yaw}; if(!a.alive||a.inVent){ a.pos.x=x; a.pos.z=z; } a.pitch=pitch; a.mode=mode; a.moving=!!moving; a.crouching=!!cr; a.leanOff=leanOff; a.lean=lean||0; }
@@ -1223,6 +1224,7 @@ function handleEvent(e){
       SFX.clank(); break;
     case 'eject': a.pos={x:e.x,z:e.z}; if(a.net) a.net={...a.net,x:e.x,z:e.z};
       if(me(a)){ showMsg('IT FOUND YOU. RUN.',2); G.flash=Math.max(G.flash,0.35); $('flash').style.background='#3a0000'; SFX.sting(); } break;
+    case 'ventKick': if(me(a)){ showMsg('THE VENT SPITS YOU OUT',2); G.flash=Math.max(G.flash,0.25); } break;
     case 'smilers': if(me(a)&&!G.jump){ G.jump={t:0,s:a}; SFX.scream(); } break;
     case 'caught': onCaught(e); break;
     case 'power': SFX.powerDown(e.x,e.z,false,!!e.back); break;
@@ -1277,7 +1279,7 @@ const LIGHT_WARM=srgb(0xfff0cf), LIGHT_RED=srgb(0xff2a18), HEMI_SKY=srgb(0xe8d39
 function updateAtmosphere(dt,cam){
   const red=G.timeLeft<=CONFIG.redTime?1:0;
   G.redK+=(red-G.redK)*(1-Math.exp(-1.2*dt));
-  if(red&&!G.redAnnounced&&!G.over){ G.redAnnounced=true; showMsg(CONFIG.redTime+' SECONDS',2.5); SFX.powerDown(null,null,true); }
+  if(red&&!G.redAnnounced&&!G.over){ G.redAnnounced=true; showMsg(CONFIG.redTime+' SECONDS'+(G.player.isMonster?'':'  ·  vents hold you '+CONFIG.lateVentTime+'s max'),2.5); SFX.powerDown(null,null,true); }
   const inD=isDark(cam)?1:0; G.darkK+=(inD-G.darkK)*(1-Math.exp(-3*dt));
   const r=G.redK; _tint.copy(TINT_WARM).lerp(TINT_RED,r);
   G.pool.forEach(pl=>pl.color.copy(LIGHT_WARM).lerp(LIGHT_RED,r));
@@ -1559,6 +1561,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   buildColliders:{get:()=>buildColliders,configurable:true},
   buildScene:{get:()=>buildScene,configurable:true},
   camera:{get:()=>camera,configurable:true},
+  canHide:{get:()=>canHide,configurable:true},
   canSee:{get:()=>canSee,configurable:true},
   canvas:{get:()=>canvas,configurable:true},
   cellOf:{get:()=>cellOf,configurable:true},
@@ -1592,6 +1595,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   joinRoom:{get:()=>joinRoom,configurable:true},
   keys:{get:()=>keys,configurable:true},
   last:{get:()=>last, set:v=>{last=v;},configurable:true},
+  lateRound:{get:()=>lateRound,configurable:true},
   lathe:{get:()=>lathe,configurable:true},
   leaveGame:{get:()=>leaveGame,configurable:true},
   lobbyTick:{get:()=>lobbyTick,configurable:true},
@@ -1683,6 +1687,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   updateSanity:{get:()=>updateSanity,configurable:true},
   updateViewer:{get:()=>updateViewer,configurable:true},
   usableVent:{get:()=>usableVent,configurable:true},
+  ventSideOK:{get:()=>ventSideOK,configurable:true},
   catchSurvivor:{get:()=>(...a)=>{ bindRound(G); const r=SIM.DEBUG.catchSurvivor(...a); drainEvents(); return r; },configurable:true},
   toggleMimic:{get:()=>(...a)=>{ bindRound(G); const r=SIM.DEBUG.toggleMimic(...a); drainEvents(); return r; },configurable:true},
   entityAttack:{get:()=>(...a)=>{ bindRound(G); const r=SIM.DEBUG.entityAttack(...a); drainEvents(); return r; },configurable:true},
