@@ -11,7 +11,7 @@ import { hashSeed, makeRng, clamp, dist2 } from '../../shared/rng.js';
 import { generateMap, neighbors, bfs, pathFrom } from '../../shared/mapgen.js';
 import { MAP, BOXES, setWorld, buildColliders, cellOf, nearby, pointBlocked, collide, los } from '../../shared/physics.js';
 import { ANOMALIES, pickAnomaly } from '../../shared/anomalies.js';
-import { createRound, step, bindRound, pickEntity, agentById, ENTITY_ID, fmt, angDiff, turnToward, speedOf, isWet, noiseRadius, isDark, blackoutAt, canSee, entitySpeed, usableVent, ventSideOK, canHide, lateRound } from '../../shared/sim.js';
+import { createRound, step, bindRound, pickEntity, roundSeed, agentById, ENTITY_ID, fmt, angDiff, turnToward, speedOf, isWet, noiseRadius, isDark, blackoutAt, canSee, entitySpeed, usableVent, ventSideOK, canHide, lateRound } from '../../shared/sim.js';
 import * as SIM from '../../shared/sim.js';
 import { BOT_NAMES, botNames as rosterBotNames, cleanName, GAME_VERSION } from '../../shared/roster.js';
 import { SERVER_URL, joinRoom } from './net.js';
@@ -763,15 +763,19 @@ const SET={net:SERVER_URL?'online':'offline',role:'random',size:16,seed:'',gfx:'
 const $=id=>document.getElementById(id);
 
 
-function startGame(seed,lob){   // offline round from the local lobby (bots fill the other slots)
-  lob=lob||LOBBY||{players:[{name:playerName(),you:true}].concat(rosterBotNames(seed,[playerName()]).map(n=>({name:n,bot:true})))};
+const OFFLINE_ROUNDS={};   // room -> {round, lastEntity}: every round in a room gets a new map + Entity
+function startGame(code,lob){   // offline round from the local lobby (bots fill the other slots)
+  lob=lob||LOBBY||{players:[{name:playerName(),you:true}].concat(rosterBotNames(code,[playerName()]).map(n=>({name:n,bot:true})))};
   const present=lob.bots===false?lob.players.filter(q=>!q.bot):lob.players;   // AI off: only real players are in the round
-  let ent=pickEntity(seed,present.length,-1);   // which person in the room plays the Entity: random, decided by the room seed
+  const R=OFFLINE_ROUNDS[code]||(OFFLINE_ROUNDS[code]={round:0,last:null}); R.round++;
+  const seed=roundSeed(code,R.round);
+  let ent=pickEntity(seed,present.length,-1,present.findIndex(q=>q.name===R.last));   // random from the round seed, never the same person twice in a row
   if(lob.entity>=0){ const k=present.indexOf(lob.players[lob.entity]); if(k>=0) ent=k; }   // the host chose someone
   else if(lob.entity===undefined){   // no lobby (testing hooks): old role override
     if(SET.role==='monster') ent=0; else if(SET.role==='survivor'&&ent===0) ent=present.length>1?1+Math.floor(makeRng(seed+'#roles2')()*(present.length-1)):-1;   // -1: nobody is the Entity
   }
   const roster=present.map(q=>({name:q.name,human:!!q.you,pid:q.you?'me':null}));
+  R.last=ent>=0?present[ent].name:null;
   beginRound({seed,size:SET.size,anomalies:lob.anomalies!=null?!!lob.anomalies:SET.anomaly!=='off',roster,entity:ent},'me',null);
 }
 /** build the round (identical on every machine for the same options), then the 3D scene around it */
@@ -794,7 +798,7 @@ function beginRound(opts,myPid,net){
   $('abilityPick').classList.toggle('hidden',!player.isMonster); if(player.isMonster) setTimeout(renderAbilityPick,0);
   $('role').textContent=player.isMonster?'You are the Entity':'You are a Survivor';
   const anomaly=W.anomaly;
-  $('seedTag').textContent='seed: '+W.seed+(anomaly.name?'  ·  anomaly: '+anomaly.name.toLowerCase():'')+(net?'  ·  online':'');
+  $('seedTag').textContent='seed: '+String(W.seed).replace(/-(\d+)$/,'  ·  round $1')+(anomaly.name?'  ·  anomaly: '+anomaly.name.toLowerCase():'')+(net?'  ·  online':'');
   const an=$('anomaly'); if(anomaly.name){ $('anTitle').textContent=anomaly.name; $('anDesc').textContent=anomaly.desc; an.classList.remove('hidden'); an.style.opacity=1; const g0=G; setTimeout(()=>{ if(G===g0) an.style.opacity=0; },7000); } else an.classList.add('hidden');
   $('stamWrap').classList.toggle('hidden',player.isMonster);
   $('feed').innerHTML='';
@@ -858,7 +862,8 @@ addEventListener('blur',()=>{ for(const k in keys) keys[k]=false; });
 document.querySelectorAll('.opt[data-g]').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll(`.opt[data-g="${b.dataset.g}"]`).forEach(o=>o.classList.remove('on')); b.classList.add('on'); SET[b.dataset.g]=(b.dataset.g==='time'||b.dataset.g==='size')?+b.dataset.v:b.dataset.v; }));
 $('seedIn').addEventListener('input',e=>{ const v=e.target.value.replace(/\D/g,'').slice(0,9); if(v!==e.target.value) e.target.value=v; });   // numbers only
 $('startBtn').addEventListener('click',()=>{ const s=$('seedIn').value.replace(/\D/g,'')||randomSeed(); $('menuNote').textContent=''; if(SET.net==='online') openOnlineLobby(s); else openLobby(s); });
-$('againBtn').addEventListener('click',()=>{ const sd=G.seed; if(G.net){ leaveGame(true); showOnlineLobby(); } else { leaveGame(); openLobby(sd); } });
+// 'Play again' goes back to the room code (the round seed has a -2, -3... suffix)
+$('againBtn').addEventListener('click',()=>{ const sd=String(G.seed).replace(/-\d+$/,''); if(G.net){ leaveGame(true); showOnlineLobby(); } else { leaveGame(); openLobby(sd); } });
 $('newBtn').addEventListener('click',()=>{ const online=!!G.net; leaveGame(); if(online) openOnlineLobby(randomSeed()); else openLobby(randomSeed()); });
 $('menuBtn').addEventListener('click',leaveGame);
 
@@ -1195,7 +1200,7 @@ function endRound(winner,time){
   $('endTitle').textContent=winner==='monster'?'THE ENTITY WINS':'SURVIVORS MADE IT';
   $('endTitle').style.color=youWon?'#f0e2a0':'#c8553a';
   const lines=[`<span style="opacity:.6">Entity:</span> ${esc(G.monster.name)}${G.monster===me?' (you)':''}`].concat(G.survivors.map(s=>`${esc(s.name)}${s===me?' (you)':''}: ${s.alive?'survived':'taken at '+s.caughtAt}`));
-  $('endBody').innerHTML=`${youWon?'You won.':'You lost.'} Time played ${time||fmt(CONFIG.roundTime-Math.max(0,G.timeLeft))}<br><br>${lines.join('<br>')}<br><br><span style="opacity:.55">seed: ${G.seed}${G.net?' · online':''}</span>`;
+  $('endBody').innerHTML=`${youWon?'You won.':'You lost.'} Time played ${time||fmt(CONFIG.roundTime-Math.max(0,G.timeLeft))}<br><br>${lines.join('<br>')}<br><br><span style="opacity:.55">room ${String(G.seed).replace(/-(\d+)$/,' · round $1')}${G.net?' · online':''}</span>`;
   $('againBtn').textContent=G.net?'BACK TO ROOM':'PLAY AGAIN';
   const g0=G; setTimeout(()=>{ if(G!==g0) return; ['pause','settingsPanel','controlsPanel'].forEach(x=>$(x).classList.add('hidden')); $('hud').classList.add('hidden'); $('end').classList.remove('hidden'); },G.ejump?2000:900);
 }
@@ -1528,6 +1533,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   LuminosityHighPassShader:{get:()=>LuminosityHighPassShader,configurable:true},
   MAP:{get:()=>MAP,configurable:true},
   NET:{get:()=>NET, set:v=>{NET=v;},configurable:true},
+  OFFLINE_ROUNDS:{get:()=>OFFLINE_ROUNDS,configurable:true},
   PANELS:{get:()=>PANELS,configurable:true},
   POOL_TEX:{get:()=>POOL_TEX, set:v=>{POOL_TEX=v;},configurable:true},
   POST_OK:{get:()=>POST_OK,configurable:true},
@@ -1668,6 +1674,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   resize:{get:()=>resize,configurable:true},
   resumeGame:{get:()=>resumeGame,configurable:true},
   rosterBotNames:{get:()=>rosterBotNames,configurable:true},
+  roundSeed:{get:()=>roundSeed,configurable:true},
   runEntityJump:{get:()=>runEntityJump,configurable:true},
   saveSettings:{get:()=>saveSettings,configurable:true},
   setAnomalies:{get:()=>setAnomalies,configurable:true},

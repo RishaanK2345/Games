@@ -2,7 +2,7 @@
 // is ready, the round itself. The round runs on shared/sim.js, the same file
 // the browser uses offline, so the rules can never drift apart.
 import { Room } from '@colyseus/core';
-import { createRound, step, snapshot, pickEntity } from '../shared/sim.js';
+import { createRound, step, snapshot, pickEntity, roundSeed } from '../shared/sim.js';
 import { botNames, cleanName, GAME_VERSION } from '../shared/roster.js';
 
 const TICK = 1 / 30;          // simulation rate (30 times a second)
@@ -20,7 +20,7 @@ export class GameRoom extends Room {
     this.phase = 'lobby';
     this.humans = [];         // [{sid, name, ready, host}] in join order
     this.settings = { size: [12, 16, 20].includes(+o.size) ? +o.size : 16, anomalies: o.anomalies !== false, bots: true, entity: 'random' };
-    this.countdown = -1; this.W = null; this.snapT = 0;
+    this.countdown = -1; this.W = null; this.snapT = 0; this.round = 0; this.lastEntity = null;
 
     const host = c => this.humans.find(h => h.sid === c.sessionId && h.host);
     this.onMessage('ready', (c, on) => { const h = this.humans.find(h => h.sid === c.sessionId); if (h && this.phase === 'lobby') { h.ready = !!on; this.sendLobby(); } });
@@ -78,7 +78,10 @@ export class GameRoom extends Room {
     const players = this.slots();
     const roster = players.map(q => ({ name: q.name, human: !q.bot, pid: q.bot ? null : q.key }));
     const chosen = players.findIndex(q => q.key === this.settings.entity);
-    const opts = { seed: this.code, size: this.settings.size, anomalies: this.settings.anomalies, roster, entity: pickEntity(this.code, roster.length, chosen) };
+    this.round++; const seed = roundSeed(this.code, this.round);
+    const entity = pickEntity(seed, roster.length, chosen, players.findIndex(q => q.key === this.lastEntity));
+    this.lastEntity = players[entity] ? players[entity].key : null;
+    const opts = { seed, size: this.settings.size, anomalies: this.settings.anomalies, roster, entity };
     this.W = createRound(opts); this.W.lagComp = true; this.phase = 'playing'; this.countdown = -1; this.snapT = 0;
     this.broadcast('start', opts);   // every client builds the identical round from these options
   }

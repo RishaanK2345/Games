@@ -37,10 +37,14 @@ export function newAgent(o) {
 }
 
 /** Which roster slot plays the Entity: the host's choice, or random from the room seed. */
-export function pickEntity(seed, rosterLen, choice) {
+export function pickEntity(seed, rosterLen, choice, avoid = -1) {
   if (choice != null && choice >= 0 && choice < rosterLen) return choice;
-  return Math.floor(makeRng(seed + '#roles')() * rosterLen);
+  let k = Math.floor(makeRng(seed + '#roles')() * rosterLen);
+  if (k === avoid && rosterLen > 1) k = (k + 1 + Math.floor(makeRng(seed + '#reroll')() * (rosterLen - 1))) % rosterLen;   // not the same one twice in a row
+  return k;
 }
+/** each round in a room gets its own seed: new map, anomaly and Entity, still identical for everyone in the room */
+export const roundSeed = (code, round) => round > 1 ? `${code}-${round}` : String(code);
 
 function placeVents(map, rnd) {
   const { N, S, h, v } = map, T = CONFIG.wallThick, cand = [];
