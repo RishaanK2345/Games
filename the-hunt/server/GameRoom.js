@@ -31,6 +31,8 @@ export class GameRoom extends Room {
       this.settings.bots = !!on; if (!this.settings.bots && String(this.settings.entity).startsWith('bot:')) this.settings.entity = 'random';
       this.unreadyAll(); this.sendLobby(); });
     this.onMessage('hello', () => this.sendLobby());   // a client is listening now: (re)send the lobby
+    this.onMessage('anomalies', (c, on) => { if (!host(c) || this.phase !== 'lobby' || this.settings.anomalies === !!on) return;
+      this.settings.anomalies = !!on; this.unreadyAll(); this.sendLobby(); });
     // in a round: the latest input per player, and one-off actions (E, attacks, ability)
     this.onMessage('input', (c, inp) => { const a = this.agentOf(c); if (a && inp && typeof inp === 'object') a.input = inp; });
     this.onMessage('act', (c, act) => { const a = this.agentOf(c); if (a && act && a.actions.length < 8) a.actions.push(act); });

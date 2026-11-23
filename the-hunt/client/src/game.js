@@ -772,7 +772,7 @@ function startGame(seed,lob){   // offline round from the local lobby (bots fill
     if(SET.role==='monster') ent=0; else if(SET.role==='survivor'&&ent===0) ent=present.length>1?1+Math.floor(makeRng(seed+'#roles2')()*(present.length-1)):-1;   // -1: nobody is the Entity
   }
   const roster=present.map(q=>({name:q.name,human:!!q.you,pid:q.you?'me':null}));
-  beginRound({seed,size:SET.size,anomalies:SET.anomaly!=='off',roster,entity:ent},'me',null);
+  beginRound({seed,size:SET.size,anomalies:lob.anomalies!=null?!!lob.anomalies:SET.anomaly!=='off',roster,entity:ent},'me',null);
 }
 /** build the round (identical on every machine for the same options), then the 3D scene around it */
 function beginRound(opts,myPid,net){
@@ -970,10 +970,10 @@ let LOBBY=null, lobbyTimer=null;
 function openLobby(seed){
   if(document.activeElement&&document.activeElement.blur) document.activeElement.blur();
   const names=rosterBotNames(seed,[playerName()]);
-  LOBBY={seed,t:0,countdown:-1,bots:PREF.bots!==false,entity:-1,players:[{name:playerName(),you:true,host:true,joined:true,ready:false}].concat(names.map((n,i)=>{ const j=0.5+i*0.55+Math.random()*0.6; return {name:n,bot:true,joinAt:j,readyAt:j+0.8+Math.random()*2.2,joined:false,ready:false}; }))};
+  LOBBY={seed,t:0,countdown:-1,bots:PREF.bots!==false,anomalies:SET.anomaly!=='off',entity:-1,players:[{name:playerName(),you:true,host:true,joined:true,ready:false}].concat(names.map((n,i)=>{ const j=0.5+i*0.55+Math.random()*0.6; return {name:n,bot:true,joinAt:j,readyAt:j+0.8+Math.random()*2.2,joined:false,ready:false}; }))};
   PANELS.forEach(x=>$(x).classList.add('hidden')); $('end').classList.add('hidden'); $('lobby').classList.remove('hidden');
   $('lbRoom').textContent=seed;
-  $('lbInfo').innerHTML=`${({12:'Small',16:'Medium',20:'Large'})[SET.size]} map · ${fmt(ROUND_TIME[SET.size])}<br>Anomalies: ${SET.anomaly==='off'?'off':'random'}`;
+  $('lbInfo').innerHTML='';
   clearInterval(lobbyTimer); let last=performance.now();
   lobbyTimer=setInterval(()=>{ const now=performance.now(); lobbyTick((now-last)/1000); last=now; },100);
   renderLobby(); SFX.init();
@@ -989,7 +989,7 @@ function lobbyTick(dt){
 }
 function renderLobby(){
   const L=LOBBY; if(!L) return;
-  if(L.online) $('lbInfo').innerHTML=`${({12:'Small',16:'Medium',20:'Large'})[L.size]} map · ${fmt(ROUND_TIME[L.size])}<br>Anomalies: ${L.anomalies?'random':'off'}<br>Online room`;
+  { const sz=L.online?L.size:SET.size; $('lbInfo').innerHTML=`${({12:'Small',16:'Medium',20:'Large'})[sz]} map · ${fmt(ROUND_TIME[sz])}<br>Anomalies: ${L.anomalies?'random':'off'}`+(L.online?'<br>Online room':''); }
   $('botsOn').classList.toggle('on',L.bots); $('botsOff').classList.toggle('on',!L.bots);
   $('lbList').innerHTML=L.players.map((q,i)=>(!q.joined||(q.bot&&!L.bots))?`<div class="lbRow empty"><span class="slot">${i+1}</span><span class="n">${L.bots?'waiting for player…':'empty slot'}</span></div>`
     :`<div class="lbRow${q.ready?' ready':''}${q.you?' you':''}"><span class="slot">${i+1}</span><span class="n">${q.name.replace(/[<>&]/g,'')}</span>${i===L.entity?'<span class="tag ent">ENTITY</span>':''}${q.host?'<span class="tag">HOST</span>':''}${q.you?'<span class="tag">YOU</span>':q.bot?'<span class="tag">BOT</span>':''}<span class="st">${q.ready?'✓ READY':'not ready'}</span></div>`).join('');
@@ -1001,6 +1001,7 @@ function renderLobby(){
   $('lbEntLine').innerHTML=ent?`Entity: <b>${esc(ent.name)}${ent.you?' (you)':''}</b> · chosen by ${host.you?'you':hn} (host)`:`Entity: <b>random</b> · picked when the round starts · set by ${host.you?'you':hn} (host)`;
   const opts=[`<option value="-1">Random</option>`].concat(L.players.map((q,i)=>(q.joined&&(!q.bot||L.bots))?`<option value="${i}">${esc(q.name)}${q.you?' (you)':''}</option>`:'')).join('');
   const sel=$('entityPick'); if(sel.dataset.o!==opts){ sel.innerHTML=opts; sel.dataset.o=opts; } sel.value=String(L.entity); sel.disabled=!isHost; $('botsOn').disabled=$('botsOff').disabled=!isHost;
+  $('anomOn').classList.toggle('on',!!L.anomalies); $('anomOff').classList.toggle('on',!L.anomalies); $('anomOn').disabled=$('anomOff').disabled=!isHost;
   $('entityPick').previousElementSibling.textContent=isHost?'Host: choose the Entity':'Only the host can change this';
   $('lbStatus').textContent=L.countdown>=0?`Everyone's ready. Starting in ${Math.ceil(L.countdown)}…`:`${joined}/6 in room · ${ready}/${joined} ready`+(!L.bots&&joined<2?' · AI off: no one to play against':'');
 }
@@ -1014,6 +1015,15 @@ function setEntity(i){
   renderLobby();
 }
 $('entityPick').addEventListener('change',e=>setEntity(+e.target.value));
+function setAnomalies(on){
+  const L=LOBBY; if(!L||!(L.players.find(q=>q.you)||{}).host||!!L.anomalies===on) return;
+  if(L.online){ NET.room.send('anomalies',on); return; }
+  L.anomalies=on; SET.anomaly=on?'random':'off';
+  document.querySelectorAll('.opt[data-g="anomaly"]').forEach(b=>b.classList.toggle('on',b.dataset.v===SET.anomaly));
+  L.countdown=-1; for(const q of L.players){ q.ready=false; if(q.bot) q.readyAt=L.t+0.8+Math.random()*1.6; }   // settings changed: everyone re-readies
+  renderLobby();
+}
+$('anomOn').addEventListener('click',()=>setAnomalies(true)); $('anomOff').addEventListener('click',()=>setAnomalies(false));
 function setBots(on){ if(!LOBBY||!(LOBBY.players.find(q=>q.you)||{}).host) return; if(LOBBY.online){ NET.room.send('bots',on); return; } LOBBY.bots=on; if(!on&&LOBBY.entity>=0&&LOBBY.players[LOBBY.entity].bot) LOBBY.entity=-1; PREF.bots=on; saveSettings(); if(on){ LOBBY.players.forEach(q=>{ if(q.bot){ q.joined=false; q.ready=false; q.joinAt=LOBBY.t+0.3+Math.random()*1.2; q.readyAt=q.joinAt+0.8+Math.random()*1.8; } }); } renderLobby(); }
 $('botsOn').addEventListener('click',()=>setBots(true)); $('botsOff').addEventListener('click',()=>setBots(false));
 $('readyBtn').addEventListener('click',()=>{ if(!LOBBY) return; const you=LOBBY.players.find(q=>q.you); if(LOBBY.online){ if(you) NET.room.send('ready',!you.ready); return; } you.ready=!you.ready; renderLobby(); });
@@ -1283,7 +1293,7 @@ function updateLights(dt,cx,cz){
     if(L.state==='dead'){ L.level=0; return; }
     const dm=Math.hypot(L.x-m.pos.x,L.z-m.pos.z), bo=blackoutAt(L.x,L.z);
     if(bo){ L.level=bo.t<1.4?(Math.random()<0.3+bo.t*0.45?0.03:0.5+Math.random()*0.5):bo.t<bo.dur?0:(Math.random()<0.55?1:0.08); }   // warning flicker, out, flicker back
-    else if(awake&&!m.disguised&&dm<R){                      // the Entity is close: lights go haywire, darker the closer it is
+    else if(awake&&!m.disguised&&!(m.revealT>0)&&dm<R){                      // the Entity is close: lights go haywire, darker the closer it is
       const close=1-dm/R; L.dt=(L.dt||0)-dt;
       if(L.dt<=0){ L.don=Math.random()>0.3+0.5*close; L.dt=0.02+Math.random()*0.14*(1.2-close); }
       L.level=L.don?0.35+Math.random()*0.65*(1-close*0.5):0.015;
@@ -1447,7 +1457,7 @@ function draw(dt){
   $('cross').style.display=p.alive?'':'none';
   // heartbeat + vignette (survivor view)
   let fear=0;
-  if(!host.isMonster&&host.alive&&!m.frozen&&!G.over&&!m.disguised){ const d=dist2(host.pos,m.pos); fear=clamp(1-d/24,0,1);
+  if(!host.isMonster&&host.alive&&!m.frozen&&!G.over&&!m.disguised&&!(m.revealT>0)){ const d=dist2(host.pos,m.pos);   // no giveaway while it's mimicking or mid-unveil fear=clamp(1-d/24,0,1);
     if(fear>0){ G.beatT-=dt; if(G.beatT<=0){ G.beatT=0.36+(1-fear)*0.85; const v=0.15+0.5*fear; SFX.thump(v); SFX.thump(v*0.7,0.17); } } }
   if(G.ejump) fear=1;
   $('vignette').style.opacity=(fear*0.75).toFixed(2); G.fear=fear;

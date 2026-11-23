@@ -1,8 +1,8 @@
 // Headless 2-player protocol test. Start the server first (npm run server), then: npm run test:server
 import { Client } from '@colyseus/sdk';
 const c=new Client('ws://localhost:2567'); const log=(...a)=>console.log(...a);
-const A=await c.joinOrCreate('level0',{code:'4242',name:'Ghosty',v:3,size:12});
-const B=await c.joinOrCreate('level0',{code:'4242',name:'Lars',v:3});
+const A=await c.joinOrCreate('level0',{code:'4242',name:'Ghosty',v:4,size:12});
+const B=await c.joinOrCreate('level0',{code:'4242',name:'Lars',v:4});
 let LA=null, startA=null, startB=null, evA=[], snapA=0, lastSnap=null, fixA=0;
 A.onMessage('lobby',L=>LA=L); B.onMessage('lobby',()=>{});
 A.onMessage('start',o=>startA=o); B.onMessage('start',o=>startB=o);
@@ -22,7 +22,7 @@ await new Promise(r=>setTimeout(r,3200));
 log('started both:',!!startA&&!!startB,'same opts:',JSON.stringify(startA)===JSON.stringify(startB));
 log('roster:',startA.roster.map(r=>`${r.name}${r.human?'*':''}`).join(','),'entity idx',startA.entity);
 // joining mid-round is refused
-try{ await c.joinOrCreate('level0',{code:'4242',name:'Late',v:3}); log('late JOINED (bad)'); }catch(e){ log('late join rejected:',e.message); }
+try{ await c.joinOrCreate('level0',{code:'4242',name:'Late',v:4}); log('late JOINED (bad)'); }catch(e){ log('late join rejected:',e.message); }
 // A (survivor) walks: send legit then a teleport
 await new Promise(r=>setTimeout(r,500));
 const me=lastSnap.s.find(r=>r[0]===0); log('A spawn',me[1],me[2]);
