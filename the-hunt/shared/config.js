@@ -32,7 +32,7 @@ export const CONFIG = {
   maxRewind: 0.3,          // online: how far back (s) the server may look when checking an Entity attack (lag compensation)
   biteRange: 1.5,          // [1] bite: same reach as the old attack
   biteCooldown: 1.0,
-  swipeRange: 2.45,         // [2] arm swipe: longer reach, wide arc
+  swipeRange: 2.3,          // [2] arm swipe: longer reach, wide arc
   swipeCooldown: 3,
   catchRecover: 1.5,       // Entity is slowed briefly after catching someone
   hearSprint: 20,
