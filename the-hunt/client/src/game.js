@@ -1269,7 +1269,8 @@ function updatePhantoms(dt){
   if(G.phantomT==null) G.phantomT=CONFIG.freezeTime+6+Math.random()*8;
   G.phantomT-=dt; if(G.phantomT>0) return;
   G.phantomT=9+Math.random()*13;
-  const kinds=p.isMonster?['walk','run','run','vent']:['walk','run','vent','attack','walk','run'];
+  const realNear=Math.hypot(G.monster.pos.x-p.pos.x,G.monster.pos.z-p.pos.z)<CONFIG.terrorRadius&&!G.monster.disguised;
+  const kinds=p.isMonster?['walk','run','run','vent']:['walk','run','vent','attack','walk','run'].concat(realNear?[]:['chase','chase']);
   const kind=kinds[Math.floor(Math.random()*kinds.length)], ang=Math.random()*Math.PI*2, g0=G;
   if(kind==='walk'||kind==='run'){
     // a path that passes right by you: starts behind/beside, crosses close, fades away
@@ -1277,6 +1278,15 @@ function updatePhantoms(dt){
     const fx=Math.cos(ang), fz=Math.sin(ang), sx=-fz*side, sz=fx*side, cx=p.pos.x, cz=p.pos.z;
     for(let i=0;i<n;i++){ const k=i/(n-1), x=cx+fx*(-d0+2*d0*k)+sx, z=cz+fz*(-d0+2*d0*k)+sz;
       setTimeout(()=>{ if(G!==g0||G.over) return; if(isWet({x,z})) SFX.squelch(x,z,run?0.38:0.3,false); else SFX.step(x,z,run?0.34:0.24,false,false); },i*gap*1000); }
+  } else if(kind==='chase'){
+    // a fake Entity chase: the 'spotted' sting, heavy Entity steps closing in from behind, the heartbeat speeding up... then nothing
+    const bx=Math.sin(p.yaw), bz=Math.cos(p.yaw), cx=p.pos.x, cz=p.pos.z;   // behind you = opposite of where you're facing
+    if(G.stingCD<=0){ SFX.sting(); G.stingCD=8; }
+    let t=0.5; const n=10;
+    for(let i=0;i<n;i++){ const k=i/(n-1), d=13-k*10.5, x=cx+bx*d+(Math.random()-0.5)*0.6, z=cz+bz*d+(Math.random()-0.5)*0.6;
+      setTimeout(()=>{ if(G!==g0||G.over||!G.player.alive) return; SFX.step(x,z,0.45+0.2*k,!los(G.player.pos.x,G.player.pos.z,x,z),false); },t*1000); t+=0.44-0.15*k; }
+    let hb=0.3; for(let i=0;i<9;i++){ const v=0.18+0.4*i/8; setTimeout(()=>{ if(G!==g0||G.over||!G.player.alive) return; SFX.thump(v); SFX.thump(v*0.7,0.17); },hb*1000); hb+=0.85-0.5*i/8; }
+    G.phantomT+=8;   // give it room to breathe
   } else if(kind==='vent'){
     const v=G.vents.slice().sort((a,b)=>Math.hypot(a.face.x-p.pos.x,a.face.z-p.pos.z)-Math.hypot(b.face.x-p.pos.x,b.face.z-p.pos.z))[Math.floor(Math.random()*2)];
     if(v&&Math.hypot(v.face.x-p.pos.x,v.face.z-p.pos.z)<22) SFX.clank(v.face.x,v.face.z); else G.phantomT=2;
