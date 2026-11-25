@@ -77,6 +77,9 @@ export const CONFIG = {
   ventDeath: 25,           // smilers get you
   shiftTimes: [120, 60, 30], // WRONG WAY anomaly: the maze rearranges at these seconds left
   shiftFrac: 0.06,         // ...opening and closing this fraction of cells' worth of walls each time
+  leverHold: 3,            // BREAKER: a pulled lever stays down this long; both down (2 different players) = fire
+  breakerCooldown: 30,     //   then it recharges for this long
+  pingTime: 3,             //   survivors see the Entity through walls (red dot) this long
   spawnSpread: 3,          // survivors spawn at least this many cells apart
   spawnSafe: 4,            // ...and the Entity at least this many cells from every survivor
   sanityRecover: 1,        // sanity time drained per second once you're out

@@ -11,7 +11,7 @@ import { hashSeed, makeRng, clamp, dist2 } from '../../shared/rng.js';
 import { generateMap, neighbors, bfs, pathFrom } from '../../shared/mapgen.js';
 import { MAP, BOXES, setWorld, buildColliders, cellOf, nearby, pointBlocked, collide, los } from '../../shared/physics.js';
 import { ANOMALIES, pickAnomaly } from '../../shared/anomalies.js';
-import { createRound, step, bindRound, pickEntity, roundSeed, ventLimits, agentById, ENTITY_ID, fmt, angDiff, turnToward, speedOf, isWet, noiseRadius, isDark, blackoutAt, canSee, entitySpeed, usableVent, ventSideOK, canHide, lateRound } from '../../shared/sim.js';
+import { createRound, step, bindRound, pickEntity, roundSeed, ventLimits, usableLever, agentById, ENTITY_ID, fmt, angDiff, turnToward, speedOf, isWet, noiseRadius, isDark, blackoutAt, canSee, entitySpeed, usableVent, ventSideOK, canHide, lateRound } from '../../shared/sim.js';
 import * as SIM from '../../shared/sim.js';
 import { BOT_NAMES, botNames as rosterBotNames, cleanName, GAME_VERSION } from '../../shared/roster.js';
 import { SERVER_URL, joinRoom } from './net.js';
@@ -181,6 +181,11 @@ const SFX={
   },
   ok(){ return this.ctx&&this.ctx.state==='running'; },
   env(g,t,a,peak,dec){ g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(peak,t+a); g.gain.exponentialRampToValueAtTime(0.0001,t+a+dec); },
+  ping(x,z){   // breaker fired: a sharp sonar ping from where the Entity is
+    if(!this.ok()) return; const c=this.ctx,t=c.currentTime;
+    for(const [f,d] of [[1320,0],[990,0.16]]){ const o=c.createOscillator(), g=c.createGain(); o.type='sine'; o.frequency.setValueAtTime(f,t+d); this.env(g,t+d,0.005,0.42,0.9);
+      o.connect(g); this._out(g,x,z); o.start(t+d); o.stop(t+d+1); }
+  },
   rumble(){   // the halls moving: a long low grind
     if(!this.ok()) return; const c=this.ctx,t=c.currentTime,g=c.createGain(); this.env(g,t,0.25,0.55,2.2);
     const n=c.createBufferSource(); n.buffer=this.noise; n.loop=true; n.playbackRate.value=0.25; const lp=c.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=140;
@@ -322,6 +327,7 @@ function resize(){
 }
 addEventListener('resize',resize); resize();
 function renderFrame(scene,dt,fear,insane){
+  placePingDot();
   if(HI()&&composer){ renderPass.scene=scene; finalPass.uniforms.time.value+=dt; finalPass.uniforms.fear.value=fear||0; finalPass.uniforms.insane.value=insane||0; composer.render(dt); }
   else renderer.render(scene,camera);
 }
@@ -658,6 +664,20 @@ function smilerCanvas(){
   for(const ex of [84,172]){ g.fillStyle='#000'; g.beginPath(); g.arc(ex,88,3.5,0,Math.PI*2); g.fill(); }
   SMILER_CANVAS=c; return c;
 }
+function makeBreakerMesh(B){
+  const g=new THREE.Group(), metal=new THREE.MeshStandardMaterial({color:srgb(0x8f959a),roughness:0.6,metalness:0.15}),
+    dark=new THREE.MeshStandardMaterial({color:srgb(0x3a3d40),roughness:0.75,metalness:0.1}), stripe=new THREE.MeshStandardMaterial({color:srgb(0xd8b020),roughness:0.6});
+  const body=new THREE.Mesh(new THREE.BoxGeometry(1.5,1.55,0.56),metal); body.position.y=0.78; g.add(body);
+  const face=new THREE.Mesh(new THREE.BoxGeometry(1.36,1.0,0.02),dark); face.position.set(0,0.95,0.29); g.add(face);
+  for(let i=0;i<6;i++){ const st=new THREE.Mesh(new THREE.BoxGeometry(0.2,0.07,0.021),i%2?dark:stripe); st.position.set(-0.55+i*0.22,0.18,0.285); g.add(st); }
+  const lamp=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.035,14),new THREE.MeshBasicMaterial({color:0x40ff60})); lamp.position.set(0,1.57,0.16); g.add(lamp);
+  const levers=[-1,1].map(sd=>{ const pivot=new THREE.Group(); pivot.position.set(sd*0.42,1.05,0.32); g.add(pivot);
+    const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.035,0.035,0.5,8),new THREE.MeshStandardMaterial({color:srgb(0xc8ccd0),roughness:0.4,metalness:0.3})); arm.position.y=0.22; pivot.add(arm);
+    const grip=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.26,12),new THREE.MeshStandardMaterial({color:srgb(0xd0281c),roughness:0.45,emissive:srgb(0x3a0400)})); grip.rotation.z=Math.PI/2; grip.position.y=0.48; pivot.add(grip);
+    const plate=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.6,0.03),stripe); plate.position.set(sd*0.42,1.05,0.305); g.add(plate);
+    pivot.rotation.x=0.3; return pivot; });
+  g.position.set(B.x,0,B.z); g.rotation.y=B.yaw; g.userData={levers,lamp}; return g;
+}
 function makeVentMesh(){
   const g=new THREE.Group(), metal=new THREE.MeshStandardMaterial({color:srgb(0x7c786c),roughness:0.55,metalness:0.6});
   const W=0.8, Hh=0.5, y0=0.13;
@@ -797,6 +817,7 @@ function beginRound(opts,myPid,net){
   const world=buildScene(W.map), T=CONFIG.wallThick;
   for(const s of W.survivors){ s.mesh=makeSurvivorMesh(s.id); world.scene.add(s.mesh); }
   const monster=W.monster; monster.walkPhase=0; monster.mesh=makeEntityMesh(); world.scene.add(monster.mesh); if(monster.absent) monster.mesh.visible=false;
+  if(W.breaker){ W.breaker.mesh=makeBreakerMesh(W.breaker); world.scene.add(W.breaker.mesh); }
   for(const v of W.vents){ v.open=0; v.openT=0; v.mesh=makeVentMesh(); v.mesh.position.set(v.px+v.nx*(T/2+0.012),0,v.pz+v.nz*(T/2+0.012)); v.mesh.rotation.y=Math.atan2(v.nx,v.nz); world.scene.add(v.mesh); }
   const player=[monster,...W.survivors].find(a=>a.pid===myPid)||W.survivors[0]||monster;
   player.isPlayer=true;
@@ -804,6 +825,11 @@ function beginRound(opts,myPid,net){
   let vm=null; if(player.isMonster){ vm=makeEntityViewArms(); camera.add(vm); }
   G=Object.assign(W,world,{player,vm,net,interact:[],corpses:[],redK:0,darkK:0,redAnnounced:false,jump:null,duct:null,insane:0,paused:false,
      spectate:-1,camYaw:player.yaw,feed:[],msgT:0,beatT:0,poolT:0,flash:0,eye:player.isMonster?2.45:1.62,attackReq:false,noiseCues:[],stingCD:0,alerted:false,sendT:0});
+  if(W.breaker) W.breaker.levers.forEach((L,i)=>addInteractable({pos:L,range:1.35,label:a=>{ const B=G.breaker;
+      if((a.pos.x-B.x)*B.nx+(a.pos.z-B.z)*B.nz<0.2||(a.isMonster&&!a.disguised)) return null;
+      if(B.cd>0) return 'Breaker recharging ('+Math.ceil(B.cd)+'s)';
+      if(L.downT>0) return null;
+      return B.levers[1-i].downT>0?'Pull the other breaker!':'Pull breaker (needs 2 people)'; }}));
   for(const v of W.vents) addInteractable({pos:v.face,range:1.5,
     label:a=>(v.broken||!ventSideOK(a,v))?null:a.isMonster?(G.monster.disguised?null:G.monster.ripCD>0?'Rip open vent ('+Math.ceil(G.monster.ripCD)+'s)':'Rip open vent'):(v.occupant||a.ventCD>0||!canHide(a))?null:'Enter vent'});
   canvas.style.filter='';
@@ -924,7 +950,7 @@ function showOnlineLobby(){
 function viewTime(){ if(!G||!G.net||G.snapAt==null) return 0; return G.snapEl+(performance.now()-G.snapAt)/1000-1/14; }
 function netUpdate(dt){
   const p=G.player; G.sendT-=dt; if(G.sendT<=0){ G.sendT=0.05; G.net.room.send('input',p.input); }
-  G.elapsed+=dt; G.timeLeft-=dt; for(const b of G.blackouts) b.t+=dt; if(G.allDarkT>0) G.allDarkT=Math.max(0,G.allDarkT-dt);
+  G.elapsed+=dt; G.timeLeft-=dt; for(const b of G.blackouts) b.t+=dt; if(G.pingT>0) G.pingT=Math.max(0,G.pingT-dt); if(G.allDarkT>0) G.allDarkT=Math.max(0,G.allDarkT-dt);
   const k=1-Math.exp(-14*dt);
   for(const a of [G.monster,...G.survivors]){ if(a===p||!a.net) continue; const n=a.net;
     if(Math.hypot(n.x-a.pos.x,n.z-a.pos.z)>4){ a.pos.x=n.x; a.pos.z=n.z; } else { a.pos.x+=(n.x-a.pos.x)*k; a.pos.z+=(n.z-a.pos.z)*k; }
@@ -943,6 +969,7 @@ function applySnapshot(S){
   m.frozen=!!M.frozen; m.ability=M.ability; m.seen=M.seen; m.state=M.state; if(M.look!=null) m.look=M.look;
   if(m!==p){ m.net={x:M.x,z:M.z,yaw:M.yaw}; m.pitch=M.pitch; m.mode=M.mode; m.moving=!!M.moving; m.crouching=!!M.crouching; m.lean=M.lean||0; m.leanOff=M.leanOff||0; }
   G.blackouts=S.b.map(([x,z,r,t,dur])=>({x,z,r,t,dur})); G.allDarkT=S.ad||0;
+  if(S.br&&G.breaker){ G.breaker.cd=S.br[0]; G.breaker.levers[0].downT=S.br[1]; G.breaker.levers[1].downT=S.br[2]; G.pingT=S.br[3]; }
 }
 
 /* =====================================================================
@@ -1254,6 +1281,12 @@ function handleEvent(e){
       for(const [k,x,y,on] of e.ch){ G.map[k][y][x]=!!on; const s=G.wallSlots[k+x+','+y]; if(s){ s.to=on?1:0; (G.wallAnim||(G.wallAnim=new Set())).add(s); } }
       setWorld(G.map); G.boxes=BOXES; SFX.rumble(); G.shake=1.4; G.shiftFlick=1.2; break; }
     case 'surge': SFX.powerDown(null,null,true); G.allDarkT=G.allDarkT||CONFIG.surgeDark; break;
+    case 'lever': { const B=G.breaker; if(!B) break; const L=B.levers[e.i];
+      if(G.net){ L.downT=e.down?CONFIG.leverHold:0; L.by=e.down?e.by:null; }
+      if(e.down) SFX.clank(); break; }
+    case 'ping': { const B=G.breaker; if(B&&G.net){ B.cd=CONFIG.breakerCooldown; B.levers.forEach(L=>{ L.downT=0; L.by=null; }); }
+      G.pingT=CONFIG.pingTime; SFX.ping(p.isMonster?null:m.pos.x,m.pos.z);
+      if(p.isMonster) showMsg('THEY KNOW WHERE YOU ARE',2); break; }
     case 'ventKick': if(me(a)){ showMsg('THE VENT SPITS YOU OUT',2); G.flash=Math.max(G.flash,0.25); } break;
     case 'smilers': if(me(a)&&!G.jump){ G.jump={t:0,s:a}; SFX.scream(); } break;
     case 'caught': onCaught(e); break;
@@ -1474,6 +1507,19 @@ function animateWalls(dt){
   if(!G.wallAnim||!G.wallAnim.size) return;
   for(const s of G.wallAnim){ const d=s.to-s.h, st=dt/1.1; s.h=Math.abs(d)<=st?s.to:s.h+Math.sign(d)*st; placeWall(s,CONFIG.wallHeight); if(s.h===s.to) G.wallAnim.delete(s); }
 }
+function drawBreaker(dt){
+  const B=G.breaker; if(!B||!B.mesh) return; const u=B.mesh.userData;
+  B.levers.forEach((L,i)=>{ const want=L.downT>0?2.55:0.3, r=u.levers[i].rotation; r.x+=(want-r.x)*Math.min(1,dt*14); });   // up and out when ready, swung down when pulled
+  u.lamp.material.color.setHex(B.cd>0?0xff3020:(B.levers.some(L=>L.downT>0)&&Math.sin(performance.now()/90)>0?0xffd040:0x40ff60));
+}
+/** the ping: a red dot on the Entity, visible through walls, for survivors (and spectators) */
+function placePingDot(){
+  if(!G) return; const dot=$('pingDot'), show=G.pingT>0&&!G.player.isMonster&&!G.over&&!G.monster.absent;
+  dot.classList.toggle('hidden',!show); if(!show) return;
+  camera.updateMatrixWorld(); const v=new THREE.Vector3(G.monster.pos.x,1.6,G.monster.pos.z).project(camera), behind=v.z>1;
+  let x=(v.x*0.5+0.5)*innerWidth, y=(-v.y*0.5+0.5)*innerHeight; if(behind){ x=innerWidth-x; y=innerHeight-24; }
+  dot.style.left=clamp(x,20,innerWidth-20)+'px'; dot.style.top=clamp(y,20,innerHeight-20)+'px';
+}
 function draw(dt){
   const lateLoud=lateRound()?CONFIG.lateStepLoud:1, lateFar=lateRound()?1.5:1;   // last 30 s: survivors are louder
   const p=G.player, m=G.monster, t=G.elapsed;
@@ -1504,7 +1550,7 @@ function draw(dt){
   const bob=(0.025-Math.abs(Math.sin(bp*Math.PI))*0.05)*bw*(host.isMonster?1.2:host.mode==='sprint'?1.2:0.8);
   camera.position.set(host.pos.x,eye+bob,host.pos.z);
   if(host.inVent){ camera.position.set(host.inVent.cam.x,0.36,host.inVent.cam.z); eye=0.36; }
-  animateWalls(dt);
+  animateWalls(dt); drawBreaker(dt);   // levers + lamp now; the red dot is placed after the camera moves (renderFrame)
   if(G.shake>0){ G.shake-=dt; const a=Math.min(1,G.shake)*0.035; camera.position.x+=(Math.random()-0.5)*a; camera.position.y+=(Math.random()-0.5)*a; }
   camera.rotation.z=Math.sin(t*0.7)*0.004+Math.sin(bp*Math.PI)*0.007*bw+(host===p&&!p.isMonster?(p.mesh.userData.fall||0)*0.45:0);
   if(host===p&&p.leanOff){ const lx=Math.cos(p.yaw), lz=-Math.sin(p.yaw), lm=p.isMonster?CONFIG.leanEntity:CONFIG.leanSurvivor;
@@ -1655,6 +1701,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   dragging:{get:()=>dragging, set:v=>{dragging=v;},configurable:true},
   drainEvents:{get:()=>drainEvents,configurable:true},
   draw:{get:()=>draw,configurable:true},
+  drawBreaker:{get:()=>drawBreaker,configurable:true},
   drawVentFX:{get:()=>drawVentFX,configurable:true},
   edgeTurn:{get:()=>edgeTurn,configurable:true},
   endRound:{get:()=>endRound,configurable:true},
@@ -1682,6 +1729,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   lockPointer:{get:()=>lockPointer,configurable:true},
   locked:{get:()=>locked, set:v=>{locked=v;},configurable:true},
   los:{get:()=>los,configurable:true},
+  makeBreakerMesh:{get:()=>makeBreakerMesh,configurable:true},
   makeCarpetTex:{get:()=>makeCarpetTex,configurable:true},
   makeCeilTex:{get:()=>makeCeilTex,configurable:true},
   makeCorpse:{get:()=>makeCorpse,configurable:true},
@@ -1767,6 +1815,7 @@ if(import.meta.env.DEV||new URLSearchParams(location.search).has('debug')) Objec
   updatePlayer:{get:()=>updatePlayer,configurable:true},
   updateSanity:{get:()=>updateSanity,configurable:true},
   updateViewer:{get:()=>updateViewer,configurable:true},
+  usableLever:{get:()=>usableLever,configurable:true},
   usableVent:{get:()=>usableVent,configurable:true},
   ventLimits:{get:()=>ventLimits,configurable:true},
   ventSideOK:{get:()=>ventSideOK,configurable:true},

@@ -104,8 +104,9 @@ export function createRound(o) {
   if (survivors.length) monster.yaw = Math.atan2(-(survivors[0].pos.x - mp.x), -(survivors[0].pos.z - mp.z));
   if (!eq) { monster.absent = true; monster.pos = { x: -9999, z: -9999 }; }   // AI off and nobody plays the Entity
   const vents = placeVents(map, rnd);
+  const breaker = placeBreaker(map, rnd, vents, [...survivors, monster]); setWorld(map);
   for (const s of survivors) if (s.human) s.yaw = Math.atan2(-(mp.x - s.pos.x), -(mp.z - s.pos.z)) + Math.PI;   // face away from where it's coming from
-  const W = { seed: o.seed, size: o.size, map, boxes: BOXES, config: JSON.parse(JSON.stringify(CONFIG)), anomaly, survivors, monster, vents,
+  const W = { seed: o.seed, size: o.size, map, boxes: BOXES, breaker, config: JSON.parse(JSON.stringify(CONFIG)), anomaly, survivors, monster, vents,
     blackouts: [], nextBlackout: 0, boRng: makeRng(o.seed + '#blackouts'), evRng: makeRng(o.seed + '#events'),
     timeLeft: CONFIG.roundTime, elapsed: 0, over: false, winner: null, events: [] };
   W.nextBlackout = CONFIG.freezeTime + 12 + W.boRng() * 15;
@@ -134,7 +135,7 @@ export function step(W, dt) {
   for (const s of W.survivors) if (s.alive && !s.human) updateBotSurvivor(s, dt);
   if (!m.human && !m.absent) updateMonsterBot(m, dt);
   if (!m.absent && !m.frozen) { m.seenT -= dt; if (m.seenT <= 0) { m.seenT = 0.1; m.seen = W.survivors.filter(s => s.alive && !s.inVent && canSee(m, s)).map(s => s.id); } }
-  updateSanity(dt); updateVentRips(dt); updateBlackouts(dt);
+  updateSanity(dt); updateVentRips(dt); updateBlackouts(dt); updateBreaker(dt);
   if (W.lagComp) recordHistory(W);
   // win check
   const alive = W.survivors.filter(s => s.alive).length;
@@ -168,6 +169,75 @@ function wallShift(n) {
   setWorld(map); G.boxes = BOXES;
   for (const a of agents) { a.path = []; a.repathT = 0; a.think = 0; }
   emit({ t: 'shift', n, ch });
+}
+/* =====================================================================
+   BREAKER: a two-lever cabinet near the center of the map. Two different
+   players (survivors, or a disguised Entity faking it) must have a lever down
+   at the same time; then every survivor sees the Entity through walls.
+   ===================================================================== */
+function placeBreaker(map, rnd, vents, agents) {
+  const N = map.N, S = map.S, mid = (N - 1) / 2, cells = [];
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) cells.push({ x, y, d: Math.hypot(x - mid, y - mid) + rnd() * 0.8 });
+  cells.sort((a, b) => a.d - b.d);
+  const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  for (const c of cells.slice(0, 16)) {   // the most central cells only
+    const cx = (c.x + 0.5) * S, cz = (c.y + 0.5) * S;
+    if (pointBlocked(cx, cz, 1.1)) continue;
+    if (vents.some(v => Math.hypot(v.front.x - cx, v.front.z - cz) < 2.2) || agents.some(a => Math.hypot(a.pos.x - cx, a.pos.z - cz) < 1.6)) continue;
+    const start = Math.floor(rnd() * 4);
+    for (let k = 0; k < 4; k++) { const [nx, nz] = dirs[(start + k) % 4];
+      if (pointBlocked(cx + nx * 1.3, cz + nz * 1.3, 0.5)) continue;              // room to stand in front
+      const W2 = 0.75, D2 = 0.28, along = { x: -nz, z: nx };                         // 1.5 m wide, 0.56 m deep
+      const box = { x0: cx - Math.abs(along.x) * W2 - Math.abs(nx) * D2, x1: cx + Math.abs(along.x) * W2 + Math.abs(nx) * D2,
+                    z0: cz - Math.abs(along.z) * W2 - Math.abs(nz) * D2, z1: cz + Math.abs(along.z) * W2 + Math.abs(nz) * D2 };
+      map.props = (map.props || []).concat([box]);
+      const lever = s => ({ x: cx + along.x * 0.42 * s + nx * 0.3, z: cz + along.z * 0.42 * s + nz * 0.3, stand: { x: cx + along.x * 0.42 * s + nx * 0.95, z: cz + along.z * 0.42 * s + nz * 0.95 }, downT: 0, by: null });
+      return { x: cx, z: cz, nx, nz, yaw: Math.atan2(nx, nz), levers: [lever(-1), lever(1)], cd: 0 };
+    }
+  }
+  return null;
+}
+/** the lever this agent can pull right now (same rules as the on-screen prompt), or null */
+export function usableLever(a) {
+  const B = G.breaker; if (!B || B.cd > 0 || a.inVent) return null;
+  if (a.isMonster && !a.disguised) return null;                // only a disguised Entity can pretend to help
+  if ((a.pos.x - B.x) * B.nx + (a.pos.z - B.z) * B.nz < 0.2) return null;   // must be in front of the cabinet
+  const fx = -Math.sin(a.yaw), fz = -Math.cos(a.yaw); let best = null, bd = 1e9;
+  B.levers.forEach((L, i) => { if (L.downT > 0) return; const dx = L.x - a.pos.x, dz = L.z - a.pos.z, d = Math.hypot(dx, dz);
+    if (d > 1.35 || d >= bd || (d > 0.25 && (dx * fx + dz * fz) / d < 0.3)) return; best = i; bd = d; });
+  return best;
+}
+function pullLever(a, i) {
+  const B = G.breaker, L = B.levers[i]; if (L.downT > 0 || B.cd > 0) return;
+  L.downT = CONFIG.leverHold; L.by = a.id; emit({ t: 'lever', i, down: true, by: a.id });
+  const O = B.levers[1 - i];
+  if (O.downT > 0 && O.by !== a.id) {   // two different people: it fires
+    B.cd = CONFIG.breakerCooldown; G.pingT = CONFIG.pingTime;
+    for (const l of B.levers) { l.downT = 0; l.by = null; }
+    emit({ t: 'ping', x: G.monster.pos.x, z: G.monster.pos.z });
+  }
+}
+function updateBreaker(dt) {
+  const B = G.breaker; if (!B) return;
+  B.cd = Math.max(0, B.cd - dt); G.pingT = Math.max(0, (G.pingT || 0) - dt);
+  B.levers.forEach((L, i) => { if (L.downT > 0) { L.downT -= dt; if (L.downT <= 0) { L.downT = 0; L.by = null; emit({ t: 'lever', i, down: false }); } } });
+}
+/** a bot survivor answers when someone is holding one lever and the other is free */
+function botBreaker(s, dt, threat) {
+  const B = G.breaker; if (!B || B.cd > 0 || threat) { if (s.state === 'toLever') { s.state = 'wander'; s.think = 0; } return false; }
+  const held = B.levers.findIndex(L => L.downT > 0.6 && L.by !== s.id), free = held < 0 ? -1 : 1 - held;
+  if (s.state !== 'toLever') {
+    if (free < 0 || B.levers[free].downT > 0) return false;
+    const L = B.levers[free]; if (dist2(s.pos, L.stand) > 13) return false;
+    const others = G.survivors.filter(o => o !== s && o.alive && !o.human && o.state === 'toLever'); if (others.length) return false;   // one helper is enough
+    s.state = 'toLever'; s.leverGoal = free; s.path = pathToPoint(s, L.stand);
+  }
+  const L = B.levers[s.leverGoal];
+  if (free < 0 || L.downT > 0) { s.state = 'wander'; s.think = 0; return false; }
+  if (dist2(s.pos, L.stand) < 0.5) { s.yaw = Math.atan2(-(L.x - s.pos.x), -(L.z - s.pos.z)); pullLever(s, s.leverGoal); s.state = 'wander'; s.think = 1; return true; }
+  const moved = followPath(s, speedOf('walk'), dt); s.mode = moved ? 'walk' : 'idle'; s.moving = moved; s.crouching = false; updateStamina(s, dt);
+  if (!moved) s.path = pathToPoint(s, L.stand);
+  return true;
 }
 function endRound(winner) { G.over = true; G.winner = winner; emit({ t: 'end', winner, time: fmt(CONFIG.roundTime - Math.max(0, G.timeLeft)) }); }
 
@@ -239,6 +309,7 @@ export function usableVent(a) {
 function useAction(a) {
   if (a.jumpT != null) return;
   if (a.inVent) { exitVent(a); return; }
+  const L = usableLever(a); if (L != null) { pullLever(a, L); return; }
   const v = usableVent(a); if (!v) return;
   if (a.isMonster) ripVent(a, v); else enterVent(a, v);
 }
@@ -321,6 +392,7 @@ function updateBotSurvivor(s, dt) {
     if (!v || v.broken || v.occupant || dist2(m.pos, v.front) < 1.5) { s.state = 'flee'; s.fleeT = 3; s.think = 0; }
     else if (dist2(s.pos, v.front) < 0.7) { enterVent(s, v); s.hideT = 0; s.calmT = 0; s.state = 'hiding'; return; }
   }
+  if (botBreaker(s, dt, threat)) return;
   s.think -= dt;
   if (s.state !== 'toVent' && (s.think <= 0 || (s.state === 'wander' && !s.path.length))) {
     if (s.state === 'flee') { s.path = fleePath(s); s.think = 0.5; }
@@ -590,7 +662,7 @@ export function snapshot(W) {
     m: { x: r2(m.pos.x), z: r2(m.pos.z), yaw: r2(m.yaw), pitch: r2(m.pitch), lean: r2(m.lean || 0), leanOff: r2(m.leanOff || 0), mode: m.mode, moving: m.moving ? 1 : 0, crouching: m.crouching ? 1 : 0, state: m.state,
       disguised: m.disguised ? 1 : 0, look: m.look, revealT: r2(m.revealT), burstT: r2(m.burstT), burstCD: r2(m.burstCD), mimicCD: r2(m.mimicCD), biteCD: r2(m.biteCD),
       swipeCD: r2(m.swipeCD), pounceT: r2(m.pounceT || 0), ripCD: r2(m.ripCD), ripT: r2(m.ripT), cooldown: r2(m.cooldown), atkLock: r2(m.atkLock), frozen: m.frozen ? 1 : 0, ability: m.ability, seen: m.seen },
-    b: W.blackouts.map(b => [r2(b.x), r2(b.z), r2(b.r), r2(b.t), r2(b.dur)]), ad: r2(W.allDarkT || 0),
+    b: W.blackouts.map(b => [r2(b.x), r2(b.z), r2(b.r), r2(b.t), r2(b.dur)]), ad: r2(W.allDarkT || 0), br: W.breaker ? [r2(W.breaker.cd), r2(W.breaker.levers[0].downT), r2(W.breaker.levers[1].downT), r2(W.pingT || 0)] : null,
   };
 }
 

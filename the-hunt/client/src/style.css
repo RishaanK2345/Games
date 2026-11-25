@@ -74,3 +74,5 @@
   .warn{margin-top:14px;padding:9px 11px;border:1px solid rgba(243,201,107,.45);background:rgba(243,201,107,.07);color:#f3c96b;font-size:11px;line-height:1.5}
   .warn b{letter-spacing:1px}
   .credit{position:fixed;left:14px;bottom:10px;font-size:11px;letter-spacing:1px;color:#e8dca0;opacity:.45;pointer-events:none}
+  .pingDot{position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:#ff2a1a;box-shadow:0 0 0 3px rgba(255,42,26,.35),0 0 18px 6px rgba(255,30,20,.6);pointer-events:none;z-index:15;animation:pd .5s ease-in-out infinite}
+  @keyframes pd{50%{transform:scale(1.35)}}

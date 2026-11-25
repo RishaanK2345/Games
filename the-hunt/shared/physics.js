@@ -12,6 +12,7 @@ export function buildColliders(map){
   for(let y=0;y<=N;y++) for(let x=0;x<N;x++) if(h[y][x]) boxes.push({x0:x*S-T/2,x1:(x+1)*S+T/2,z0:y*S-T/2,z1:y*S+T/2});
   for(let y=0;y<N;y++) for(let x=0;x<=N;x++) if(v[y][x]) boxes.push({x0:x*S-T/2,x1:x*S+T/2,z0:y*S-T/2,z1:(y+1)*S+T/2});
   for(const p of map.pillars) boxes.push({x0:p.x*S-0.3,x1:p.x*S+0.3,z0:p.y*S-0.3,z1:p.y*S+0.3});
+  for(const b of map.props||[]) boxes.push(b);   // e.g. the breaker cabinet
   const buckets=Array.from({length:N*N},()=>[]);
   for(const b of boxes){
     const cx0=clamp(Math.floor((b.x0-1)/S),0,N-1), cx1=clamp(Math.floor((b.x1+1)/S),0,N-1);
