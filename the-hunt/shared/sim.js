@@ -155,8 +155,10 @@ function wallShift(n) {
                                           : { x0: x * S - T / 2 - pad, x1: x * S + T / 2 + pad, z0: y * S - T / 2 - pad, z1: (y + 1) * S + T / 2 + pad };
   const inBox = (b, p) => p.x > b.x0 && p.x < b.x1 && p.z > b.z0 && p.z < b.z1;
   const agents = [G.monster, ...G.survivors].filter(a => !a.absent);
-  const ventOn = (k, x, y) => G.vents.some(v => inBox(box(k, x, y, 0.05), { x: v.px, z: v.pz }));
-  const unsafe = (k, x, y) => agents.some(a => inBox(box(k, x, y, 0.75), a.pos)) || G.vents.some(v => inBox(box(k, x, y, 0.6), v.front));
+  const Bk = G.breaker;
+  const ventOn = (k, x, y) => G.vents.some(v => inBox(box(k, x, y, 0.05), { x: v.px, z: v.pz })) || (Bk && Bk.wall[0] === k && Bk.wall[1] === x && Bk.wall[2] === y);   // vents and the breaker's wall stay
+  const unsafe = (k, x, y) => agents.some(a => inBox(box(k, x, y, 0.75), a.pos)) || G.vents.some(v => inBox(box(k, x, y, 0.6), v.front))
+    || (Bk && [{ x: Bk.x, z: Bk.z }, ...Bk.levers.map(L => L.stand)].some(p => inBox(box(k, x, y, 0.8), p)));
   const reach = () => { const d = bfs(map, 0, 0).dist; let c = 0; for (const x of d) if (x >= 0) c++; return c; };
   const total = reach(), walls = [], gaps = [];
   for (let y = 1; y < N; y++) for (let x = 0; x < N; x++) (map.h[y][x] ? walls : gaps).push(['h', x, y]);
@@ -176,23 +178,28 @@ function wallShift(n) {
    at the same time; then every survivor sees the Entity through walls.
    ===================================================================== */
 function placeBreaker(map, rnd, vents, agents) {
-  const N = map.N, S = map.S, mid = (N - 1) / 2, cells = [];
+  // mounted flat against a wall of one of the most central cells, facing into the cell
+  const N = map.N, S = map.S, T = CONFIG.wallThick, mid = (N - 1) / 2, cells = [];
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) cells.push({ x, y, d: Math.hypot(x - mid, y - mid) + rnd() * 0.8 });
   cells.sort((a, b) => a.d - b.d);
-  const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
-  for (const c of cells.slice(0, 16)) {   // the most central cells only
-    const cx = (c.x + 0.5) * S, cz = (c.y + 0.5) * S;
-    if (pointBlocked(cx, cz, 1.1)) continue;
-    if (vents.some(v => Math.hypot(v.front.x - cx, v.front.z - cz) < 2.2) || agents.some(a => Math.hypot(a.pos.x - cx, a.pos.z - cz) < 1.6)) continue;
-    const start = Math.floor(rnd() * 4);
-    for (let k = 0; k < 4; k++) { const [nx, nz] = dirs[(start + k) % 4];
-      if (pointBlocked(cx + nx * 1.3, cz + nz * 1.3, 0.5)) continue;              // room to stand in front
-      const W2 = 0.75, D2 = 0.28, along = { x: -nz, z: nx };                         // 1.5 m wide, 0.56 m deep
+  const W2 = 0.75, D2 = 0.28;                                                    // 1.5 m wide, 0.56 m deep
+  for (const c of cells.slice(0, 20)) {
+    const walls = [['h', c.x, c.y, 0, 1], ['h', c.x, c.y + 1, 0, -1], ['v', c.x, c.y, 1, 0], ['v', c.x + 1, c.y, -1, 0]].filter(([k, x, y]) => map[k][y][x]);
+    for (let i = walls.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [walls[i], walls[j]] = [walls[j], walls[i]]; }
+    for (const [k, wx, wy, nx, nz] of walls) {
+      const off = T / 2 + D2 + 0.01;
+      const cx = k === 'h' ? (wx + 0.5) * S : wx * S + nx * off, cz = k === 'h' ? wy * S + nz * off : (wy + 0.5) * S;
+      const along = { x: -nz, z: nx };
+      if (vents.some(v => Math.hypot(v.px - cx, v.pz - cz) < 2.0 || Math.hypot(v.front.x - cx, v.front.z - cz) < 1.8)) continue;   // not on top of a vent
+      if (agents.some(a => Math.hypot(a.pos.x - cx, a.pos.z - cz) < 1.6)) continue;
+      const lever = sd => ({ x: cx + along.x * 0.42 * sd + nx * 0.3, z: cz + along.z * 0.42 * sd + nz * 0.3,
+        stand: { x: cx + along.x * 0.42 * sd + nx * 0.95, z: cz + along.z * 0.42 * sd + nz * 0.95 }, downT: 0, by: null });
+      const levers = [lever(-1), lever(1)];
+      if (levers.some(L => pointBlocked(L.stand.x, L.stand.z, 0.4))) continue;   // room to stand at both levers
       const box = { x0: cx - Math.abs(along.x) * W2 - Math.abs(nx) * D2, x1: cx + Math.abs(along.x) * W2 + Math.abs(nx) * D2,
                     z0: cz - Math.abs(along.z) * W2 - Math.abs(nz) * D2, z1: cz + Math.abs(along.z) * W2 + Math.abs(nz) * D2 };
       map.props = (map.props || []).concat([box]);
-      const lever = s => ({ x: cx + along.x * 0.42 * s + nx * 0.3, z: cz + along.z * 0.42 * s + nz * 0.3, stand: { x: cx + along.x * 0.42 * s + nx * 0.95, z: cz + along.z * 0.42 * s + nz * 0.95 }, downT: 0, by: null });
-      return { x: cx, z: cz, nx, nz, yaw: Math.atan2(nx, nz), levers: [lever(-1), lever(1)], cd: 0 };
+      return { x: cx, z: cz, nx, nz, yaw: Math.atan2(nx, nz), levers, cd: 0, wall: [k, wx, wy] };
     }
   }
   return null;
